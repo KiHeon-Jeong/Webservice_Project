@@ -28,3 +28,7 @@ data/*.csv
 .DS_Store
 Thumbs.db
 node_modules/
+dist/
+cfdashboard/
+floor.png
+floor-rooms-preview.png

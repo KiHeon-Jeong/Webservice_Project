@@ -3,34 +3,58 @@ import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { ImportWizard } from './components/ImportWizard';
 import { TemplateLibrary } from './components/TemplateLibrary';
-import { SequenceGenerator } from './components/SequenceGenerator';
-import { Analytics } from './components/Analytics';
-import { PaymentPortal } from './components/PaymentPortal';
+import { Nutrition } from './components/Nutrition';
 import { ComplianceCenter } from './components/ComplianceCenter';
-import { Settings } from './components/Settings';
 
 export default function App() {
   const [activeSection, setActiveSection] = useState('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [selectedResidentId, setSelectedResidentId] = useState<string | null>(null);
+  const [templateEditorOpen, setTemplateEditorOpen] = useState(false);
+
+  const handleNavigateToResident = (residentId: string) => {
+    setSelectedResidentId(residentId);
+    setActiveSection('import');
+  };
+
+  const handleNavigateToTemplateEditor = (residentId?: string) => {
+    if (residentId) {
+      setSelectedResidentId(residentId);
+    }
+    setTemplateEditorOpen(true);
+    setActiveSection('templates');
+  };
+
+  const handleSectionChange = (section: string) => {
+    setActiveSection(section);
+    if (section !== 'templates') {
+      setTemplateEditorOpen(false);
+    }
+  };
 
   const renderContent = () => {
     switch (activeSection) {
       case 'dashboard':
-        return <Dashboard />;
+        return <Dashboard onNavigateToResident={handleNavigateToResident} />;
       case 'import':
-        return <ImportWizard />;
+        return (
+          <ImportWizard
+            selectedResidentId={selectedResidentId}
+            onNavigateToTemplateEditor={handleNavigateToTemplateEditor}
+          />
+        );
       case 'templates':
-        return <TemplateLibrary />;
-      case 'sequences':
-        return <SequenceGenerator />;
-      case 'analytics':
-        return <Analytics />;
-      case 'payments':
-        return <PaymentPortal />;
+        return (
+          <TemplateLibrary
+            startInEditor={templateEditorOpen}
+            onEditorClose={() => setTemplateEditorOpen(false)}
+            selectedResidentId={selectedResidentId}
+          />
+        );
+      case 'nutrition':
+        return <Nutrition />;
       case 'compliance':
         return <ComplianceCenter />;
-      case 'settings':
-        return <Settings />;
       default:
         return <Dashboard />;
     }
@@ -40,7 +64,7 @@ export default function App() {
     <div className="flex h-screen bg-background">
       <Sidebar
         activeSection={activeSection}
-        onSectionChange={setActiveSection}
+        onSectionChange={handleSectionChange}
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
       />

@@ -12,73 +12,7 @@ import {
   Search,
   Users
 } from 'lucide-react';
-
-type RiskLevel = 'critical' | 'high' | 'moderate' | 'low';
-
-type Resident = {
-  id: string;
-  name: string;
-  room: string;
-  age: number;
-  gender: '남' | '여';
-  risk: RiskLevel;
-  score: number;
-};
-
-type ResidentDetail = {
-  conditions: string[];
-  meds: string[];
-  baseImmunity: number;
-  envMultiplier: number;
-  personalAdjust: number;
-  labs: Array<{ name: string; value: string; ref: string; status: 'normal' | 'borderline' | 'abnormal' }>;
-  actions: Array<{ level: 'urgent' | 'warning' | 'info'; title: string; desc: string }>;
-};
-
-const residents: Resident[] = [
-  { id: 'r-101', name: '김영희', room: '101호', age: 87, gender: '여', risk: 'critical', score: 18.2 },
-  { id: 'r-102', name: '박철수', room: '102호', age: 82, gender: '남', risk: 'critical', score: 24.5 },
-  { id: 'r-105', name: '이순자', room: '105호', age: 91, gender: '여', risk: 'critical', score: 27.3 },
-  { id: 'r-103', name: '정민호', room: '103호', age: 79, gender: '남', risk: 'high', score: 38.7 },
-  { id: 'r-104', name: '최영자', room: '104호', age: 84, gender: '여', risk: 'high', score: 42.1 },
-  { id: 'r-106', name: '한상철', room: '106호', age: 76, gender: '남', risk: 'moderate', score: 55.8 },
-  { id: 'r-107', name: '윤미경', room: '107호', age: 81, gender: '여', risk: 'moderate', score: 61.2 },
-  { id: 'r-108', name: '강태영', room: '108호', age: 74, gender: '남', risk: 'low', score: 78.4 },
-  { id: 'r-109', name: '서정희', room: '109호', age: 72, gender: '여', risk: 'low', score: 82.6 },
-  { id: 'r-110', name: '이수현', room: '110호', age: 80, gender: '여', risk: 'moderate', score: 58.9 },
-  { id: 'r-111', name: '오춘자', room: '111호', age: 90, gender: '여', risk: 'critical', score: 21.4 },
-  { id: 'r-112', name: '김정수', room: '112호', age: 77, gender: '남', risk: 'high', score: 41.8 },
-  { id: 'r-113', name: '문선희', room: '113호', age: 83, gender: '여', risk: 'moderate', score: 63.1 },
-  { id: 'r-114', name: '배현수', room: '114호', age: 69, gender: '남', risk: 'low', score: 84.9 },
-  { id: 'r-115', name: '황미정', room: '115호', age: 86, gender: '여', risk: 'high', score: 36.5 },
-  { id: 'r-116', name: '권태식', room: '116호', age: 78, gender: '남', risk: 'moderate', score: 52.7 },
-  { id: 'r-117', name: '서영란', room: '117호', age: 92, gender: '여', risk: 'critical', score: 19.6 },
-  { id: 'r-118', name: '양기성', room: '118호', age: 73, gender: '남', risk: 'low', score: 76.2 },
-  { id: 'r-119', name: '이인주', room: '119호', age: 81, gender: '여', risk: 'high', score: 44.3 },
-  { id: 'r-120', name: '유정훈', room: '120호', age: 75, gender: '남', risk: 'moderate', score: 57.4 }
-];
-
-const residentDetails: Record<string, ResidentDetail> = {
-  'r-101': {
-    conditions: ['치매', '심부전', '당뇨'],
-    meds: [],
-    baseImmunity: 53,
-    envMultiplier: 3.28,
-    personalAdjust: -18,
-    labs: [
-      { name: 'Albumin', value: '2.9', ref: '정상: 3.5-5.0', status: 'abnormal' },
-      { name: 'Lymphocyte', value: '1,100', ref: '정상: 1,500+', status: 'abnormal' },
-      { name: 'CRP', value: '8.5', ref: '정상: <5.0', status: 'abnormal' },
-      { name: 'Total Protein', value: '6.2', ref: '정상: 6.0-8.0', status: 'borderline' }
-    ],
-    actions: [
-      { level: 'urgent', title: '독감 예방접종 즉시 실시', desc: '미접종 상태 · 보건소 연계 필요' },
-      { level: 'urgent', title: '격리실 배정 고려', desc: '다인실 감염 전파 위험 높음' },
-      { level: 'warning', title: '단백질 보충 강화', desc: 'Albumin 수치 개선 필요 (20g/일)' },
-      { level: 'info', title: '매일 2회 체온 측정', desc: '37.5°C 이상 시 즉시 보고' }
-    ]
-  }
-};
+import { residents, residentDetails, type RiskLevel } from './data/immuneResidents';
 
 const riskStyles: Record<
   RiskLevel,
@@ -194,18 +128,29 @@ const labNormalLine: Record<string, number> = {
   'Total Protein': 6.0
 };
 
-export function ImportWizard() {
+export function ImportWizard({
+  selectedResidentId: externalSelectedResidentId,
+  onNavigateToTemplateEditor
+}: {
+  selectedResidentId?: string | null;
+  onNavigateToTemplateEditor?: (residentId?: string) => void;
+} = {}) {
   const detailColumnRef = useRef<HTMLDivElement | null>(null);
-  const closeLabTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scoreAnimationRef = useRef<number | null>(null);
-  const [selectedId, setSelectedId] = useState(residents[0].id);
+  const animatedScoreRef = useRef(0);
+  const previousResidentIdRef = useRef<string | null>(null);
+  const [selectedId, setSelectedId] = useState(externalSelectedResidentId ?? residents[0].id);
   const [activeFilter, setActiveFilter] = useState<'all' | 'critical' | 'high'>('all');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [listHeight, setListHeight] = useState<number | null>(null);
-  const [labWidget, setLabWidget] = useState<{ name: string; x: number; y: number } | null>(null);
   const [animatedScore, setAnimatedScore] = useState(0);
-  const [labChartReady, setLabChartReady] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  useEffect(() => {
+    if (externalSelectedResidentId) {
+      setSelectedId(externalSelectedResidentId);
+      setActiveFilter('all');
+    }
+  }, [externalSelectedResidentId]);
   const residentConditions = useMemo(() => {
     const map: Record<string, string[]> = {};
     residents.forEach((resident) => {
@@ -225,7 +170,6 @@ export function ImportWizard() {
   const details =
     residentDetails[selectedResident.id] ??
     residentDetails['r-101'];
-  const labWidgetName = labWidget?.name;
   const conditions = residentConditions[selectedResident.id] ?? [];
   const prescriptionList = [
     { id: 'rx-1', name: '혈압약 (Amlodipine)', dose: '5mg · 1정', schedule: 'AM 09:00', note: '식후' },
@@ -242,13 +186,35 @@ export function ImportWizard() {
       {} as Record<string, boolean>
     )
   );
+  const [checkedActions, setCheckedActions] = useState<Record<string, { checked: boolean; time?: string; staff?: string }>>(() =>
+    details.actions.reduce(
+      (acc, action) => {
+        acc[action.title] = { checked: false };
+        return acc;
+      },
+      {} as Record<string, { checked: boolean; time?: string; staff?: string }>
+    )
+  );
+  useEffect(() => {
+    setCheckedActions(
+      details.actions.reduce(
+        (acc, action) => {
+          acc[action.title] = { checked: false };
+          return acc;
+        },
+        {} as Record<string, { checked: boolean; time?: string; staff?: string }>
+      )
+    );
+  }, [selectedResident.id]);
+  const completedActionCount = Object.values(checkedActions).filter((item) => item.checked).length;
+  const actionScoreStep = 0.6;
+  const scoreTarget = Math.min(100, selectedResident.score + completedActionCount * actionScoreStep);
   const conditionPreview = [...conditions, ...details.meds].length
     ? [...conditions, ...details.meds].join(', ')
     : '없음';
   const actionPreview = details.actions?.length
     ? details.actions.map((action) => action.title).join(' / ')
     : '없음';
-
   const updateLabel = `${new Date().toLocaleDateString('ko-KR', {
     year: 'numeric',
     month: 'long',
@@ -311,21 +277,24 @@ export function ImportWizard() {
   }, []);
 
   useEffect(() => {
-    const target = selectedResident.score;
-    const duration = 720;
+    const target = scoreTarget;
+    const duration = 520;
     const start = performance.now();
+    const isNewResident = previousResidentIdRef.current !== selectedResident.id;
+    previousResidentIdRef.current = selectedResident.id;
+    const startValue = isNewResident ? 0 : animatedScoreRef.current;
 
     if (scoreAnimationRef.current !== null) {
       cancelAnimationFrame(scoreAnimationRef.current);
     }
 
-    setAnimatedScore(0);
-
     const tick = (now: number) => {
       const elapsed = now - start;
       const progress = Math.min(elapsed / duration, 1);
       const eased = 1 - Math.pow(1 - progress, 3);
-      setAnimatedScore(target * eased);
+      const nextValue = startValue + (target - startValue) * eased;
+      animatedScoreRef.current = nextValue;
+      setAnimatedScore(nextValue);
       if (progress < 1) {
         scoreAnimationRef.current = requestAnimationFrame(tick);
       }
@@ -339,17 +308,7 @@ export function ImportWizard() {
         scoreAnimationRef.current = null;
       }
     };
-  }, [selectedResident.id, selectedResident.score]);
-
-  useEffect(() => {
-    if (!labWidgetName) {
-      setLabChartReady(false);
-      return;
-    }
-    setLabChartReady(false);
-    const frame = requestAnimationFrame(() => setLabChartReady(true));
-    return () => cancelAnimationFrame(frame);
-  }, [labWidgetName]);
+  }, [selectedResident.id, scoreTarget]);
 
   const riskDotColors: Record<RiskLevel, string> = {
     critical: '#ef4444',
@@ -389,22 +348,6 @@ export function ImportWizard() {
     return { linePath, areaPath, coords, width, height, plotHeight, normalY, labelY, min, max, padding };
   };
 
-  const labDates = useMemo(() => {
-    const today = new Date();
-    return Array.from({ length: 7 }, (_, index) => {
-      const date = new Date(today);
-      date.setDate(today.getDate() - (6 - index));
-      return `${date.getMonth() + 1}/${date.getDate()}`;
-    });
-  }, []);
-
-  const activeLab = labWidget
-    ? details.labs.find((lab) => lab.name === labWidget.name) ?? details.labs[0]
-    : null;
-  const activeLabTrend = activeLab ? labTrendMap[activeLab.name] ?? [10, 12, 11, 13, 12, 13, 12] : null;
-  const activeLabNormal = activeLab ? labNormalLine[activeLab.name] : undefined;
-  const activeLabChart = activeLab && activeLabTrend ? buildSparkline(activeLabTrend, activeLabNormal) : null;
-
   const formatLabValue = (value: number) => {
     if (value >= 1000) {
       return value.toLocaleString('ko-KR');
@@ -418,186 +361,8 @@ export function ImportWizard() {
     return value.toFixed(2);
   };
 
-  const openLabWidget = (name: string, event: React.MouseEvent<HTMLElement>) => {
-    if (closeLabTimeoutRef.current) {
-      clearTimeout(closeLabTimeoutRef.current);
-    }
-    setLabWidget({ name, x: event.clientX, y: event.clientY });
-  };
-
-  const moveLabWidget = (name: string, event: React.MouseEvent<HTMLElement>) => {
-    setLabWidget({ name, x: event.clientX, y: event.clientY });
-  };
-
-  const keepLabWidget = () => {
-    if (closeLabTimeoutRef.current) {
-      clearTimeout(closeLabTimeoutRef.current);
-    }
-  };
-
-  const closeLabWidget = () => {
-    if (closeLabTimeoutRef.current) {
-      clearTimeout(closeLabTimeoutRef.current);
-    }
-    closeLabTimeoutRef.current = setTimeout(() => {
-      setLabWidget(null);
-    }, 160);
-  };
-
   return (
     <div className="p-6 space-y-6">
-      {labWidget ? (
-        <div
-          className="pointer-events-none fixed inset-0 z-40 bg-slate-900/20 transition-opacity"
-          aria-hidden="true"
-        />
-      ) : null}
-      {labWidget && activeLab && activeLabChart ? (
-        <div
-          className="fixed z-50 animate-in fade-in-0 zoom-in-95 duration-200 ease-out"
-          style={{
-            left: labWidget.x - 12,
-            top: labWidget.y - 12,
-            transform: 'translate(-100%, -100%)'
-          }}
-          onMouseEnter={keepLabWidget}
-          onMouseLeave={closeLabWidget}
-        >
-          <div className="w-[40rem] rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-2xl">
-            <div className="flex items-center justify-between text-sm text-slate-500">
-              <span>{activeLab.name} 7일 추이</span>
-              <span className="text-red-500">---: 정상 기준선</span>
-            </div>
-            {(() => {
-              const gradientId = `lab-widget-${activeLab.name.toLowerCase().replace(/\s+/g, '')}`;
-              return (
-                <svg
-                  viewBox={`0 0 ${activeLabChart.width} ${activeLabChart.height}`}
-                  className="mt-4 h-60 w-full"
-                  fill="none"
-                >
-                  <defs>
-                    <linearGradient
-                      id={gradientId}
-                      x1="0%"
-                      y1="0%"
-                      x2="0%"
-                      y2="100%"
-                    >
-                      <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.25" />
-                      <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
-                    </linearGradient>
-                  </defs>
-                  <path
-                    d={activeLabChart.areaPath}
-                    fill={`url(#${gradientId})`}
-                    style={{
-                      opacity: labChartReady ? 1 : 0,
-                      transition: 'opacity 350ms ease-out 120ms'
-                    }}
-                  />
-                  <text
-                    x={activeLabChart.padding - 6}
-                    y={activeLabChart.padding + 6}
-                    textAnchor="end"
-                    fontSize="10"
-                    fill="#94a3b8"
-                  >
-                    {formatLabValue(activeLabChart.max)}
-                  </text>
-                  <text
-                    x={activeLabChart.padding - 6}
-                    y={activeLabChart.plotHeight - activeLabChart.padding + 10}
-                    textAnchor="end"
-                    fontSize="10"
-                    fill="#94a3b8"
-                  >
-                    {formatLabValue(activeLabChart.min)}
-                  </text>
-                  {activeLabChart.normalY !== null ? (
-                    <>
-                      <line
-                        x1="0"
-                        x2={activeLabChart.width}
-                        y1={activeLabChart.normalY}
-                        y2={activeLabChart.normalY}
-                        stroke="#ef4444"
-                        strokeWidth="2"
-                        strokeDasharray="6 6"
-                      />
-                      {activeLabNormal !== undefined ? (
-                        <text
-                          x={activeLabChart.width - 6}
-                          y={activeLabChart.normalY - 6}
-                          textAnchor="end"
-                          fontSize="10"
-                          fill="#ef4444"
-                        >
-                          {formatLabValue(activeLabNormal)}
-                        </text>
-                      ) : null}
-                    </>
-                  ) : null}
-                  <path
-                    d={activeLabChart.linePath}
-                    className="stroke-blue-600 stroke-[2.5]"
-                    pathLength={1}
-                    strokeDasharray="1"
-                    strokeDashoffset={labChartReady ? 0 : 1}
-                    style={{ transition: 'stroke-dashoffset 650ms ease-out' }}
-                  />
-                  {activeLabChart.coords.map((point, index) => {
-                    const delay = 180 + index * 40;
-                    return (
-                      <circle
-                        key={index}
-                        cx={point.x}
-                        cy={point.y}
-                        r="3"
-                        fill="#2563eb"
-                        style={{
-                          opacity: labChartReady ? 1 : 0,
-                          transform: labChartReady ? 'scale(1)' : 'scale(0.6)',
-                          transformOrigin: `${point.x}px ${point.y}px`,
-                          transition: `transform 300ms ease-out ${delay}ms, opacity 300ms ease-out ${delay}ms`
-                        }}
-                      />
-                    );
-                  })}
-                  {activeLabChart.coords.map((point, index) => (
-                    <text
-                      key={`value-${index}`}
-                      x={point.x}
-                      y={point.y - 8}
-                      textAnchor="middle"
-                      fontSize="10"
-                      fill="#64748b"
-                      style={{
-                        opacity: labChartReady ? 1 : 0,
-                        transition: `opacity 300ms ease-out ${220 + index * 40}ms`
-                      }}
-                    >
-                      {formatLabValue(activeLabTrend[index])}
-                    </text>
-                  ))}
-                  {activeLabChart.coords.map((point, index) => (
-                    <text
-                      key={`label-${index}`}
-                      x={point.x}
-                      y={activeLabChart.labelY}
-                      textAnchor="middle"
-                      fontSize="10"
-                      fill="#94a3b8"
-                    >
-                      {labDates[index] ?? ''}
-                    </text>
-                  ))}
-                </svg>
-              );
-            })()}
-          </div>
-        </div>
-      ) : null}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">감염 취약성 관리</h1>
@@ -614,8 +379,9 @@ export function ImportWizard() {
           </Button>
         </div>
       </div>
-
-      <div className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-100 p-4 text-red-800">
+      
+      <>
+          <div className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-100 p-4 text-red-800">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-red-100">
             <AlertTriangle className="h-5 w-5" />
@@ -751,7 +517,7 @@ export function ImportWizard() {
         </Card>
 
         <div ref={detailColumnRef} className="flex flex-col gap-2">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px] items-start">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr] items-start">
             <div className="space-y-3">
               <Card>
                 <CardHeader className="space-y-3">
@@ -811,59 +577,57 @@ export function ImportWizard() {
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <p className="text-sm font-semibold text-muted-foreground">점수 구성</p>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">기초 면역력</span>
-                        <span className="font-medium">{details.baseImmunity} / 100</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">환경 위험 계수</span>
-                        <span className="font-medium text-orange-600">× {details.envMultiplier.toFixed(2)}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">개인 조정</span>
-                        <span className="font-medium text-red-600">{details.personalAdjust}점</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <p className="text-sm font-semibold text-muted-foreground">주요 검사 수치</p>
-                    <div className="grid grid-cols-2 gap-3">
-                  {details.labs.map((lab) => {
-                    const labTone =
-                      lab.status === 'abnormal'
-                        ? 'border-red-200 bg-red-50 hover:bg-red-100'
-                        : lab.status === 'borderline'
-                          ? 'border-amber-200 bg-amber-50 hover:bg-amber-100'
-                          : 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100';
-                    return (
-                    <div
-                      key={lab.name}
-                      onMouseEnter={(event) => openLabWidget(lab.name, event)}
-                      onMouseMove={(event) => moveLabWidget(lab.name, event)}
-                      onMouseLeave={closeLabWidget}
-                      className={`group rounded-lg border ${labTone} p-3 transition-colors`}
-                    >
-                      <p className="text-xs text-muted-foreground">{lab.name}</p>
-                      <p
-                        className={`text-lg font-semibold ${
-                          lab.status === 'abnormal'
-                            ? 'text-red-600'
-                            : lab.status === 'borderline'
-                              ? 'text-amber-600'
-                              : 'text-emerald-600'
-                        }`}
-                      >
-                        {lab.value}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{lab.ref}</p>
-                    </div>
-                  );
-                })}
-                    </div>
+                  <div className="space-y-3">
+                    <p className="text-sm font-semibold text-muted-foreground">맞춤 권장 조치</p>
+                    {details.actions.map((action) => {
+                      const actionState = checkedActions[action.title] ?? { checked: false };
+                      const isChecked = actionState.checked;
+                      const tone =
+                        action.level === 'urgent'
+                          ? 'border-red-200 bg-red-50'
+                          : action.level === 'warning'
+                            ? 'border-orange-200 bg-orange-50'
+                            : 'border-blue-200 bg-blue-50';
+                      const checkedTone = 'border-emerald-200 bg-emerald-50';
+                      return (
+                        <label
+                          key={action.title}
+                          className={`flex items-start gap-3 rounded-lg border p-3 text-sm transition-colors ${
+                            isChecked ? checkedTone : tone
+                          }`}
+                        >
+                          <Checkbox
+                            checked={isChecked}
+                            onCheckedChange={(checked) => {
+                              setCheckedActions((prev) => ({
+                                ...prev,
+                                [action.title]:
+                                  checked === true
+                                    ? {
+                                        checked: true,
+                                        time: new Date().toLocaleTimeString('ko-KR', {
+                                          hour: '2-digit',
+                                          minute: '2-digit'
+                                        }),
+                                        staff: '김지현'
+                                      }
+                                    : { checked: false }
+                              }));
+                            }}
+                            className="mt-0.5"
+                          />
+                          <div className="grid gap-1">
+                            <span className="font-semibold text-foreground">{action.title}</span>
+                            <span className="text-xs text-muted-foreground">{action.desc}</span>
+                            {isChecked && (
+                              <span className="text-xs text-emerald-700">
+                                체크 시각: {actionState.time} · 담당자: {actionState.staff}
+                              </span>
+                            )}
+                          </div>
+                        </label>
+                      );
+                    })}
                   </div>
                 </CardContent>
               </Card>
@@ -914,34 +678,147 @@ export function ImportWizard() {
               </Card>
             </div>
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Users className="h-5 w-5 text-amber-600" />
-                  맞춤 권장 조치
-                </CardTitle>
-                <Button variant="ghost" size="sm">
-                  모두 보기 →
-                </Button>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {details.actions.map((action) => (
-                  <div
-                    key={action.title}
-                    className={`rounded-lg border border-border p-3 ${
-                      action.level === 'urgent'
-                        ? 'bg-red-50'
-                        : action.level === 'warning'
-                          ? 'bg-orange-50'
-                          : 'bg-blue-50'
-                    }`}
-                  >
-                    <p className="font-semibold">{action.title}</p>
-                    <p className="text-xs text-muted-foreground">{action.desc}</p>
+            <div className="space-y-3">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Users className="h-5 w-5 text-amber-600" />
+                    점수 구성 · 주요 검사 수치
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold text-muted-foreground">점수 구성</p>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">기초 면역력</span>
+                        <span className="font-medium">{details.baseImmunity} / 100</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">환경 위험 계수</span>
+                        <span className="font-medium text-orange-600">× {details.envMultiplier.toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">개인 조정</span>
+                        <span className="font-medium text-red-600">{details.personalAdjust}점</span>
+                      </div>
+                    </div>
                   </div>
-                ))}
-              </CardContent>
-            </Card>
+
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold text-muted-foreground">주요 검사 수치</p>
+                    <div className="grid grid-cols-2 gap-3">
+                    {details.labs.map((lab) => {
+                      const labTone =
+                        lab.status === 'abnormal'
+                          ? 'border-red-200 bg-red-50 hover:bg-red-100'
+                          : lab.status === 'borderline'
+                            ? 'border-amber-200 bg-amber-50 hover:bg-amber-100'
+                            : 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100';
+                      const labTrend = labTrendMap[lab.name] ?? [10, 12, 11, 13, 12, 13, 12];
+                      const labNormal = labNormalLine[lab.name];
+                      const labChart = buildSparkline(labTrend, labNormal, 220, 90, 12, 18);
+                      return (
+                        <div
+                          key={lab.name}
+                          className={`group rounded-lg border ${labTone} p-3 transition-colors`}
+                        >
+                          <p className="text-xs text-muted-foreground">{lab.name}</p>
+                          <p
+                            className={`text-lg font-semibold ${
+                              lab.status === 'abnormal'
+                                ? 'text-red-600'
+                                : lab.status === 'borderline'
+                                  ? 'text-amber-600'
+                                  : 'text-emerald-600'
+                            }`}
+                          >
+                            {lab.value}
+                          </p>
+                          <p className="text-xs text-muted-foreground">{lab.ref}</p>
+                          <svg
+                            viewBox={`0 0 ${labChart.width} ${labChart.height}`}
+                            className="mt-2 h-16 w-full"
+                            fill="none"
+                          >
+                            <defs>
+                              <linearGradient
+                                id={`lab-inline-${lab.name.toLowerCase().replace(/\\s+/g, '')}`}
+                                x1="0%"
+                                y1="0%"
+                                x2="0%"
+                                y2="100%"
+                              >
+                                <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.25" />
+                                <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+                              </linearGradient>
+                            </defs>
+                            <path
+                              d={labChart.areaPath}
+                              fill={`url(#lab-inline-${lab.name.toLowerCase().replace(/\\s+/g, '')})`}
+                            />
+                            {labChart.normalY !== null ? (
+                              <line
+                                x1="0"
+                                x2={labChart.width}
+                                y1={labChart.normalY}
+                                y2={labChart.normalY}
+                                stroke="#ef4444"
+                                strokeWidth="2"
+                                strokeDasharray="6 6"
+                              />
+                            ) : null}
+                            <path d={labChart.linePath} className="stroke-blue-600 stroke-[2.2]" />
+                            {labChart.coords.map((point, index) => (
+                              <circle
+                                key={index}
+                                cx={point.x}
+                                cy={point.y}
+                                r="2.5"
+                                fill="#2563eb"
+                              />
+                            ))}
+                          </svg>
+                        </div>
+                      );
+                    })}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle className="text-base">보호자에게 연락 바로가기</CardTitle>
+                  <Button variant="ghost" size="sm" className="border border-slate-200">
+                    연락 기록 보기 →
+                  </Button>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">주 보호자: 김보호</p>
+                        <p className="text-xs text-muted-foreground">관계: 자녀 · 010-2345-6789</p>
+                      </div>
+                      <span className="text-xs text-emerald-600">최근 연락: 2일 전</span>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <Button
+                        variant="outline"
+                        className="border-slate-200 bg-white"
+                        onClick={() => onNavigateToTemplateEditor?.(selectedResident.id)}
+                      >
+                        보호자에게 연락하기
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-500">
+                    기록은 보호자 동의 이후에만 공유됩니다.
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </div>
       </div>
@@ -1058,6 +935,9 @@ export function ImportWizard() {
           </div>
         </DialogContent>
       </Dialog>
+
+      
+      </>
     </div>
   );
 }

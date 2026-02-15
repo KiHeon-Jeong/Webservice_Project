@@ -3,14 +3,9 @@ import {
   LayoutDashboard, 
   Upload, 
   FileText, 
-  Workflow, 
   BarChart3, 
-  CreditCard, 
   Shield, 
-  Settings,
-  Building2,
-  ChevronLeft,
-  ChevronRight
+  Building2
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -22,13 +17,10 @@ interface SidebarProps {
 
 const navigationItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'import', label: '환자 면역 관리 페이지', icon: Upload },
-  { id: 'analytics', label: '건기식 페이지', icon: BarChart3 },
+  { id: 'import', label: 'Immune', icon: Upload },
+  { id: 'nutrition', label: 'Nutrition', icon: BarChart3 },
   { id: 'templates', label: 'Template', icon: FileText },
-  { id: 'sequences', label: 'Seqiences', icon: Workflow },
-  { id: 'payments', label: 'payment', icon: CreditCard },
-  { id: 'compliance', label: '원장 관리 센터', icon: Shield },
-  { id: 'settings', label: 'setting', icon: Settings },
+  { id: 'compliance', label: 'Management', icon: Shield },
 ];
 
 export function Sidebar({
@@ -37,42 +29,18 @@ export function Sidebar({
   isCollapsed,
   onToggleCollapse,
 }: SidebarProps) {
+  void isCollapsed;
+  void onToggleCollapse;
   return (
     <div
-      className={`bg-sidebar border-r border-sidebar-border flex flex-col transition-all duration-300 ${
-        isCollapsed ? 'w-20' : 'w-64'
-      }`}
+      className="bg-sidebar border-r border-sidebar-border flex w-20 flex-col"
     >
       {/* Header */}
-      <div className={`border-b border-sidebar-border ${isCollapsed ? 'p-4' : 'p-6'}`}>
-        <div
-          className={`flex ${
-            isCollapsed ? 'flex-col items-center gap-3' : 'items-center gap-3'
-          }`}
-        >
-          <div className="w-8 h-8 bg-sidebar-primary rounded-lg flex items-center justify-center">
+      <div className="border-b border-sidebar-border p-4">
+        <div className="flex flex-col items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary">
             <Building2 className="w-5 h-5 text-sidebar-primary-foreground" />
           </div>
-          {!isCollapsed && (
-            <div>
-              <h1 className="text-sidebar-foreground font-medium">2조이기조</h1>
-              <p className="text-sm text-muted-foreground">요양원관리시스템</p>
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={onToggleCollapse}
-            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className={`inline-flex h-8 w-8 items-center justify-center rounded-md text-sidebar-foreground transition-colors hover:bg-sidebar-accent/50 ${
-              isCollapsed ? '' : 'ml-auto'
-            }`}
-          >
-            {isCollapsed ? (
-              <ChevronRight className="h-4 w-4" />
-            ) : (
-              <ChevronLeft className="h-4 w-4" />
-            )}
-          </button>
         </div>
       </div>
 
@@ -87,17 +55,15 @@ export function Sidebar({
               <li key={item.id}>
                 <button
                   onClick={() => onSectionChange(item.id)}
-                  title={isCollapsed ? item.label : undefined}
-                  className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
-                    isCollapsed ? 'justify-center' : 'gap-3'
-                  } ${
+                  title={item.label}
+                  className={`w-full flex flex-col items-center gap-2 rounded-lg px-3 py-2 text-center text-[11px] font-medium leading-tight transition-colors ${
                     isActive 
                       ? 'bg-sidebar-accent text-sidebar-accent-foreground' 
                       : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
                   }`}
                 >
                   <Icon className="w-5 h-5" />
-                  <span className={isCollapsed ? 'sr-only' : ''}>{item.label}</span>
+                  <span>{item.label}</span>
                 </button>
               </li>
             );
@@ -107,16 +73,10 @@ export function Sidebar({
 
       {/* Footer */}
       <div className="p-4 border-t border-sidebar-border">
-        <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'}`}>
-          <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center">
+        <div className="flex items-center justify-center">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
             <span className="text-sm">O2</span>
           </div>
-          {!isCollapsed && (
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-sidebar-foreground truncate">kdtoracle2</p>
-              <p className="text-xs text-muted-foreground">Admin</p>
-            </div>
-          )}
         </div>
       </div>
     </div>

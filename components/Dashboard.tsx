@@ -1,27 +1,216 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
+import { motion, AnimatePresence } from 'motion/react';
+import { residents as immuneResidents, residentDetails, type Resident, type ResidentDetail } from './data/immuneResidents';
 import { 
   Users, 
   HeartPulse,
   AlertTriangle,
-  Syringe,
+  ShieldCheck,
   ArrowUp,
   ArrowDown,
   Minus,
-  Mail, 
-  Phone, 
-  MessageSquare,
   ArrowRight,
-  Upload,
-  FileText,
-  BarChart3
+  ChevronRight
 } from 'lucide-react';
 
-type RiskLevel = 'critical' | 'high' | 'moderate' | 'low';
+type RoomEnvironment = {
+  temperature: number;
+  humidity: number;
+  targetTemperature: number;
+  targetHumidity: number;
+};
 
-export function Dashboard() {
+type WestWingRoom = {
+  id: string;
+  name: string;
+  type: 'patient' | 'service' | 'stairs' | 'hallway';
+  status: 'occupied' | 'available' | 'maintenance' | 'alert' | 'none';
+  resident?: string;
+  lastCheck?: string;
+  vitals?: { heartRate: number; bp: string };
+  environment?: RoomEnvironment;
+};
+
+const westWingRooms: Record<string, WestWingRoom> = {
+  T1: {
+    id: 'T1',
+    name: 'Room 201',
+    type: 'patient',
+    status: 'occupied',
+    resident: 'John Doe',
+    lastCheck: '10 min ago',
+    vitals: { heartRate: 72, bp: '120/80' },
+    environment: { temperature: 24.1, humidity: 42, targetTemperature: 24, targetHumidity: 45 }
+  },
+  T2: {
+    id: 'T2',
+    name: 'Room 202',
+    type: 'patient',
+    status: 'available',
+    lastCheck: '2 hours ago',
+    environment: { temperature: 23.6, humidity: 40, targetTemperature: 24, targetHumidity: 45 }
+  },
+  T3: {
+    id: 'T3',
+    name: 'Room 203',
+    type: 'patient',
+    status: 'alert',
+    resident: 'Sarah Smith',
+    lastCheck: '5 min ago',
+    vitals: { heartRate: 98, bp: '145/95' },
+    environment: { temperature: 24.8, humidity: 38, targetTemperature: 24, targetHumidity: 45 }
+  },
+  T4: {
+    id: 'T4',
+    name: 'Room 204',
+    type: 'patient',
+    status: 'occupied',
+    resident: 'Michael Brown',
+    lastCheck: '45 min ago',
+    vitals: { heartRate: 68, bp: '118/75' },
+    environment: { temperature: 24.3, humidity: 44, targetTemperature: 24, targetHumidity: 45 }
+  },
+  T5: {
+    id: 'T5',
+    name: 'Room 205',
+    type: 'patient',
+    status: 'maintenance',
+    lastCheck: '1 day ago',
+    environment: { temperature: 23.9, humidity: 41, targetTemperature: 24, targetHumidity: 45 }
+  },
+  T6: {
+    id: 'T6',
+    name: 'Storage A',
+    type: 'service',
+    status: 'none',
+    environment: { temperature: 22.8, humidity: 35, targetTemperature: 23, targetHumidity: 40 }
+  },
+  B1: {
+    id: 'B1',
+    name: 'Room 206',
+    type: 'patient',
+    status: 'occupied',
+    resident: 'Emma Wilson',
+    lastCheck: '15 min ago',
+    vitals: { heartRate: 75, bp: '122/82' },
+    environment: { temperature: 24.0, humidity: 43, targetTemperature: 24, targetHumidity: 45 }
+  },
+  B2: {
+    id: 'B2',
+    name: 'Room 207',
+    type: 'patient',
+    status: 'occupied',
+    resident: 'Robert Lee',
+    lastCheck: '30 min ago',
+    vitals: { heartRate: 70, bp: '115/78' },
+    environment: { temperature: 23.7, humidity: 41, targetTemperature: 24, targetHumidity: 45 }
+  },
+  B3: {
+    id: 'B3',
+    name: 'Room 208',
+    type: 'patient',
+    status: 'available',
+    lastCheck: '3 hours ago',
+    environment: { temperature: 24.5, humidity: 39, targetTemperature: 24, targetHumidity: 45 }
+  },
+  B4: {
+    id: 'B4',
+    name: 'Room 209',
+    type: 'patient',
+    status: 'occupied',
+    resident: 'Linda Garcia',
+    lastCheck: '20 min ago',
+    vitals: { heartRate: 80, bp: '130/85' },
+    environment: { temperature: 24.2, humidity: 42, targetTemperature: 24, targetHumidity: 45 }
+  },
+  B5: {
+    id: 'B5',
+    name: 'Room 210',
+    type: 'patient',
+    status: 'alert',
+    resident: 'James Miller',
+    lastCheck: '2 min ago',
+    vitals: { heartRate: 105, bp: '150/100' },
+    environment: { temperature: 24.7, humidity: 38, targetTemperature: 24, targetHumidity: 45 }
+  },
+  S1: { id: 'S1', name: 'North Stairs', type: 'stairs', status: 'none' },
+  S2: { id: 'S2', name: 'South Stairs', type: 'stairs', status: 'none' },
+  H1: { id: 'H1', name: 'Main Wing Hallway', type: 'hallway', status: 'none' }
+};
+
+const getStatusColor = (status: WestWingRoom['status'], isSelected: boolean) => {
+  if (isSelected) return 'fill-blue-100 stroke-blue-500';
+  switch (status) {
+    case 'occupied': return 'fill-green-50 stroke-green-200';
+    case 'available': return 'fill-slate-50 stroke-slate-200';
+    case 'maintenance': return 'fill-amber-50 stroke-amber-200';
+    case 'alert': return 'fill-red-50 stroke-red-200';
+    default: return 'fill-slate-50 stroke-slate-200';
+  }
+};
+
+const getStatusIconColor = (status: WestWingRoom['status']) => {
+  switch (status) {
+    case 'occupied': return 'text-green-500';
+    case 'available': return 'text-slate-400';
+    case 'maintenance': return 'text-amber-500';
+    case 'alert': return 'text-red-500';
+    default: return 'text-slate-300';
+  }
+};
+
+const getStatusDotFill = (status: WestWingRoom['status']) => {
+  switch (status) {
+    case 'occupied': return '#22c55e';
+    case 'available': return '#cbd5e1';
+    case 'maintenance': return '#f59e0b';
+    case 'alert': return '#ef4444';
+    default: return '#e2e8f0';
+  }
+};
+
+const getDoorStroke = () => '#9ca3af';
+
+export function Dashboard({ onNavigateToResident }: { onNavigateToResident?: (residentId: string) => void }) {
+  const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
+  const [selectedResidentId, setSelectedResidentId] = useState<string | null>(null);
+  const selectedData = selectedRoom ? westWingRooms[selectedRoom] : null;
+  const selectedResident: Resident | null =
+    selectedResidentId
+      ? immuneResidents.find((resident) => resident.id === selectedResidentId) ?? null
+      : null;
+  const selectedResidentDetail =
+    selectedResident
+      ? residentDetails[selectedResident.id] ?? residentDetails['r-101']
+      : null;
+
+  const handleRoomClick = (id: string) => {
+    setSelectedRoom((prev) => (prev === id ? null : id));
+    setSelectedResidentId(null);
+  };
+
+  const handleBedClick = (residentId: string) => {
+    if (onNavigateToResident) {
+      onNavigateToResident(residentId);
+      return;
+    }
+    setSelectedResidentId((prev) => (prev === residentId ? null : residentId));
+    setSelectedRoom(null);
+  };
+
   const metrics = [
+    {
+      title: '시설 감염 취약도',
+      value: '안전',
+      detail: '(현재 면역 점수: 85점)',
+      statusLabel: '상태: 안전',
+      statusColor: 'bg-emerald-500',
+      statusText: 'text-emerald-600',
+      trend: 'flat',
+      icon: ShieldCheck
+    },
     {
       title: '전체 재원 어르신',
       value: '118 명',
@@ -51,30 +240,8 @@ export function Dashboard() {
       statusText: 'text-orange-600',
       trend: 'down',
       icon: AlertTriangle
-    },
-    {
-      title: '시즌 백신 접종률',
-      value: '92% (대상자 115/125)',
-      detail: '미접종 10명 확인 필요',
-      statusLabel: '상태: 양호',
-      statusColor: 'bg-blue-500',
-      statusText: 'text-blue-600',
-      trend: 'flat',
-      icon: Syringe
     }
   ];
-  const riskSummaryStyles: Record<RiskLevel, { text: string; border: string }> = {
-    critical: { text: 'text-red-600', border: 'border-l-red-500' },
-    high: { text: 'text-orange-600', border: 'border-l-orange-500' },
-    moderate: { text: 'text-amber-600', border: 'border-l-amber-500' },
-    low: { text: 'text-emerald-600', border: 'border-l-emerald-500' }
-  };
-  const riskSummaryStats = [
-    { key: 'critical', label: 'CRITICAL (0-30)', value: 5, delta: '+2', trend: 'up' },
-    { key: 'high', label: 'HIGH (30-50)', value: 5, delta: '변동 없음', trend: 'flat' },
-    { key: 'moderate', label: 'MODERATE (50-70)', value: 6, delta: '-1', trend: 'down' },
-    { key: 'low', label: 'LOW (70-100)', value: 4, delta: '-1', trend: 'down' }
-  ] as const;
   const healthIndices = [
     {
       label: '자외선지수',
@@ -103,131 +270,25 @@ export function Dashboard() {
       tone: 'text-sky-500',
       ring: 'border-sky-400',
       face: '🤢'
-    },
-    {
-      label: '천식질환지수',
-      status: '경고',
-      tone: 'text-amber-500',
-      ring: 'border-amber-400',
-      face: '😷'
-    },
-    {
-      label: '심뇌혈관질환지수',
-      status: '위험',
-      tone: 'text-red-500',
-      ring: 'border-red-400',
-      face: '❤️‍🩹'
     }
   ];
   const today = new Date();
   const formatTwo = (value: number) => value.toString().padStart(2, '0');
   const updateLabel = `${today.getFullYear()}.${formatTwo(today.getMonth() + 1)}.${formatTwo(today.getDate())} 09:00 업데이트`;
-  const seriesConfig = {
-    '30d': {
-      label: '최근 30일',
-      points: [
-        58, 60, 61, 59, 62, 64, 63, 65, 67, 66,
-        68, 69, 70, 69, 71, 72, 70, 73, 74, 73,
-        75, 76, 77, 76, 78, 79, 80, 82, 83, 85
-      ],
-      labelFn: (index: number) => {
-        const date = new Date(today);
-        date.setDate(today.getDate() - 29 + index);
-        return date.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
-      }
-    },
-    '7d': {
-      label: '최근 7일',
-      points: [62, 68, 70, 75, 72, 80, 85],
-      labelFn: (index: number) => {
-        const date = new Date(today);
-        date.setDate(today.getDate() - 6 + index);
-        return date.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
-      }
-    },
-    '6h': {
-      label: '최근 6시간',
-      points: [72, 74, 73, 76, 79, 82],
-      labelFn: (index: number) => {
-        const date = new Date(today);
-        date.setHours(today.getHours() - 5 + index);
-        return date.toLocaleTimeString('ko-KR', { hour: 'numeric' });
-      }
-    }
-  } as const;
-  const [selectedRange, setSelectedRange] = useState<keyof typeof seriesConfig>('7d');
-  const selectedSeries = seriesConfig[selectedRange];
-  const immuneSnapshots = selectedSeries.points.map((score, index) => ({
-    score,
-    residents: 118 + (index % 3 === 0 ? 1 : 0),
-    caution: 4 + (index % 4 === 0 ? 1 : 0),
-    temperature: 23 + (index % 3),
-    humidity: selectedRange === '6h' ? 35 + index : 25 + (index % 6)
-  }));
-  const immuneScoreTrend = immuneSnapshots.map((snapshot, index) => ({
-    label: selectedSeries.labelFn(index),
-    value: snapshot.score,
-    ...snapshot
-  }));
-  const trendValues = immuneScoreTrend.map((item) => item.value);
-  const minTrend = Math.min(...trendValues);
-  const maxTrend = Math.max(...trendValues);
-  const chartPadding = 6;
-  const chartSpan = 100 - chartPadding * 2;
-  const range = Math.max(maxTrend - minTrend, 1);
-  const trendCoordinates = immuneScoreTrend.map((item, index) => {
-    const x = chartPadding + (index / (immuneScoreTrend.length - 1)) * chartSpan;
-    const y = chartPadding + (1 - (item.value - minTrend) / range) * chartSpan;
-    return { x, y, value: item.value, label: item.label };
-  });
-  const trendPoints = trendCoordinates.map((point) => `${point.x},${point.y}`).join(' ');
-  const trendDeltas = immuneScoreTrend.map((item, index) =>
-    index === 0 ? 0 : item.value - immuneScoreTrend[index - 1].value
-  );
-  const shouldShowAxisLabel = (index: number) => {
-    if (selectedRange === '30d') {
-      return index % 5 === 0 || index === immuneScoreTrend.length - 1;
-    }
-    return true;
-  };
-  const currentScore = immuneScoreTrend[immuneScoreTrend.length - 1].value;
-  const scoreDelta = currentScore - immuneScoreTrend[0].value;
-  const scoreDeltaLabel = `${scoreDelta >= 0 ? '+' : ''}${scoreDelta}`;
-  const scoreTrendLabel = scoreDelta > 0 ? '상승' : scoreDelta < 0 ? '하락' : '유지';
-  const scoreTrendColor =
-    scoreDelta > 0 ? 'text-emerald-600' : scoreDelta < 0 ? 'text-red-600' : 'text-muted-foreground';
-  const getRiskTrendTone = (key: RiskLevel, trend: 'up' | 'down' | 'flat') => {
-    if (trend === 'flat') {
-      return 'text-muted-foreground';
-    }
-    if (key === 'low') {
-      return trend === 'up' ? 'text-emerald-600' : 'text-red-600';
-    }
-    if (key === 'moderate') {
-      return trend === 'down' ? 'text-emerald-600' : 'text-red-600';
-    }
-    return trend === 'up' ? 'text-red-600' : 'text-emerald-600';
-  };
-
   const recentActivity = [
-    { action: 'Payment received', amount: '$1,250', customer: 'Smith Corp', time: '2m ago' },
+    { action: 'Payment received', customer: 'Smith Corp', time: '2m ago' },
     { action: 'Email sequence completed', customer: 'Johnson LLC', time: '15m ago' },
     { action: 'New import processed', details: '450 records', time: '1h ago' },
     { action: 'Campaign started', customer: 'Anderson Inc', time: '2h ago' }
   ];
 
-  const channelStats = [
-    { name: 'Email', sent: 1250, opened: 845, responded: 234, icon: Mail, color: 'bg-blue-500' },
-    { name: 'SMS', sent: 680, opened: 612, responded: 156, icon: MessageSquare, color: 'bg-green-500' },
-    { name: 'Voice', sent: 320, opened: 298, responded: 89, icon: Phone, color: 'bg-purple-500' }
-  ];
 
   return (
     <div className="p-6 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1>이기조 Nursing home Immunization system</h1>
+          <h1>MainDashboard</h1>
           <p className="text-muted-foreground">Overview of your collections performance</p>
         </div>
         <div className="flex gap-3">
@@ -285,261 +346,125 @@ export function Dashboard() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4 px-5 pt-4 pb-5">
-          <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4 lg:items-stretch">
-            <div className="space-y-2">
-              <p className="text-[21px] font-semibold text-muted-foreground">현재 상태 요약</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                <div className="rounded-lg border border-border p-3 space-y-1">
-                  <p className="text-sm text-muted-foreground">시설 감염 취약도</p>
-                  <p className="text-2xl font-semibold text-emerald-600">안전</p>
-                  <p className="text-sm text-muted-foreground">(현재 면역 점수: 85점)</p>
-                </div>
-                <div className="rounded-lg border border-border p-3 space-y-1">
-                  <p className="text-sm text-muted-foreground">실내 환경 모니터</p>
-                  <p className="text-sm">온도: <span className="text-foreground">24°C</span> (적정)</p>
-                  <p className="text-sm">습도: <span className="text-orange-600">25%</span> (건조)</p>
-                  <p className="text-sm">실내 미세먼지: <span className="text-foreground">28㎍/㎥</span></p>
-                  <p className="text-sm">CO₂ 농도: <span className="text-foreground">720ppm</span></p>
-                </div>
-                <div className="rounded-lg border border-border p-3 space-y-1">
-                  <p className="text-sm text-muted-foreground">외부 위험요인</p>
-                  <p className="text-sm">계절: <span className="">겨울</span> ❄️</p>
-                  <p className="text-sm">독감 유행: <span className="text-red-600">O</span></p>
-                  <p className="text-sm">PM10: <span className="text-foreground">42㎍/㎥</span></p>
-                  <p className="text-sm">PM2.5: <span className="text-foreground">18㎍/㎥</span></p>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2 lg:h-full">
-              <p className="text-[21px] font-semibold text-muted-foreground">환자 집단 통계</p>
-              <div className="rounded-lg border border-border p-3 space-y-2 text-sm lg:flex-1">
-                <p>👥 전체 인원: 50명 / 고위험군: 5명 / 발열 환자: 2명</p>
-                <p>🩺 주요 만성질환 보유 비율: 65%</p>
-              </div>
-            </div>
-          </div>
-
           <div className="space-y-2">
-            <p className="text-[21px] font-semibold text-muted-foreground">시설 면역 점수 변화</p>
-            <div className="rounded-lg border border-border p-3 space-y-2">
-              <div className="flex flex-col gap-2">
-                <div className="flex flex-wrap gap-2">
-                  {(['30d', '7d', '6h'] as const).map((range) => (
-                    <Button
-                      key={range}
-                      variant={selectedRange === range ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setSelectedRange(range)}
-                    >
-                      {range === '30d' ? '30일' : range === '7d' ? '7일' : '6시간'}
-                    </Button>
-                  ))}
-                </div>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">{selectedSeries.label} 추이</p>
-                    <p className="text-base font-semibold text-foreground">현재 {currentScore}점</p>
-                  </div>
-                  <span className={`text-sm font-semibold ${scoreTrendColor}`}>
-                    {scoreDeltaLabel} {scoreTrendLabel}
-                  </span>
-                </div>
-              </div>
-              <div className="relative h-40 w-full overflow-visible">
-                <svg
-                  viewBox="0 0 100 100"
-                  preserveAspectRatio="none"
-                  className="absolute inset-0 h-full w-full"
-                >
-                  <defs>
-                    <linearGradient id="immuneScoreFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#34d399" stopOpacity="0.35" />
-                      <stop offset="100%" stopColor="#34d399" stopOpacity="0" />
-                    </linearGradient>
-                  </defs>
-                  <polygon
-                    points={`${chartPadding},${100 - chartPadding} ${trendPoints} ${100 - chartPadding},${100 - chartPadding}`}
-                    fill="url(#immuneScoreFill)"
-                  />
-                  {trendCoordinates.slice(1).map((point, index) => {
-                    const prev = trendCoordinates[index];
-                    const delta = trendDeltas[index + 1];
-                    const segmentColor =
-                      delta <= -5 ? '#ef4444' : delta < 0 ? '#f59e0b' : '#10b981';
-                    return (
-                      <path
-                        key={`${prev.label}-${point.label}`}
-                        d={`M ${prev.x} ${prev.y} L ${point.x} ${point.y}`}
-                        fill="none"
-                        stroke={segmentColor}
-                        strokeWidth="3"
-                        vectorEffect="non-scaling-stroke"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    );
-                  })}
-                </svg>
-                {trendCoordinates.map((point, index) => {
-                  const snapshot = immuneScoreTrend[index];
-                  const delta = trendDeltas[index];
-                  const pointColor =
-                    delta <= -5 ? 'bg-red-500' : delta < 0 ? 'bg-orange-500' : 'bg-emerald-500';
-                  return (
-                    <div
-                      key={point.label}
-                      className="absolute group"
-                      style={{ left: `${point.x}%`, top: `${point.y}%` }}
-                    >
-                      <span className={`block h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ${pointColor} ring-2 ring-white`}></span>
-                      <div className="pointer-events-none absolute left-1/2 top-0 z-10 w-56 -translate-x-1/2 -translate-y-[110%] rounded-lg border border-border bg-white/95 p-3 text-xs text-foreground opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-                        <p className="mb-2 text-sm font-semibold">{snapshot.label}</p>
-                        <div className="space-y-1 text-muted-foreground">
-                          <p>재원 어르신: <span className="font-semibold text-foreground">{snapshot.residents}명</span></p>
-                          <p>면역 주의군 수: <span className="font-semibold text-foreground">{snapshot.caution}명</span></p>
-                          <p>
-                            실내 환경 모니터:
-                            <span className="font-semibold text-foreground"> {snapshot.temperature}°C / {snapshot.humidity}%</span>
-                          </p>
-                          <p>면역 점수: <span className="font-semibold text-foreground">{snapshot.value}점</span></p>
+            <p className="text-[21px] font-semibold text-muted-foreground">환자 병실 위치 단면도</p>
+            <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-4">
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+                <WestWingFloorPlan
+                  selectedRoom={selectedRoom}
+                  onSelect={handleRoomClick}
+                  onBedSelect={handleBedClick}
+                />
+                <div className="relative w-full">
+                  <div className="flex flex-col gap-3">
+                    <div className="rounded-xl border border-border bg-slate-50 p-4 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-base font-semibold text-muted-foreground">실내 환경 모니터</p>
+                        <span className="text-sm text-muted-foreground">Live</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="flex flex-col items-center gap-3 rounded-lg bg-white/80 p-3">
+                          <div className="flex h-12 w-12 items-center justify-center rounded-full border-4 border-rose-200 text-rose-500 text-lg">
+                            🌡️
+                          </div>
+                          <span className="text-sm font-semibold text-rose-600">온도</span>
+                          <span className="text-center text-xs text-muted-foreground">24°C (적정)</span>
+                        </div>
+                        <div className="flex flex-col items-center gap-3 rounded-lg bg-white/80 p-3">
+                          <div className="flex h-12 w-12 items-center justify-center rounded-full border-4 border-sky-200 text-sky-500 text-lg">
+                            💧
+                          </div>
+                          <span className="text-sm font-semibold text-sky-600">습도</span>
+                          <span className="text-center text-xs text-muted-foreground">25% (건조)</span>
+                        </div>
+                        <div className="flex flex-col items-center gap-3 rounded-lg bg-white/80 p-3">
+                          <div className="flex h-12 w-12 items-center justify-center rounded-full border-4 border-amber-200 text-amber-500 text-lg">
+                            🌫️
+                          </div>
+                          <span className="text-sm font-semibold text-amber-600">미세먼지</span>
+                          <span className="text-center text-xs text-muted-foreground">28㎍/㎥</span>
+                        </div>
+                        <div className="flex flex-col items-center gap-3 rounded-lg bg-white/80 p-3">
+                          <div className="flex h-12 w-12 items-center justify-center rounded-full border-4 border-emerald-200 text-emerald-500 text-lg">
+                            🧪
+                          </div>
+                          <span className="text-sm font-semibold text-emerald-600">CO₂</span>
+                          <span className="text-center text-xs text-muted-foreground">720ppm</span>
                         </div>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-              <div className="relative h-6 text-xs text-muted-foreground">
-                {trendCoordinates.map((point, index) => (
-                  <span
-                    key={point.label}
-                    className="absolute -translate-x-1/2"
-                    style={{
-                      left: `${point.x}%`,
-                      opacity: shouldShowAxisLabel(index) ? 1 : 0
-                    }}
-                  >
-                    {immuneScoreTrend[index].label}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {riskSummaryStats.map((stat) => {
-                const risk = riskSummaryStyles[stat.key];
-                return (
-                  <Card key={stat.key} className={`border-l-4 ${risk.border}`}>
-                    <CardHeader className="pb-0">
-                      <CardTitle className="text-[19px] font-semibold text-muted-foreground">{stat.label}</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-1">
-                      <div className={`text-4xl sm:text-5xl font-semibold ${risk.text}`}>{stat.value}</div>
-                      <p className={`text-xs ${getRiskTrendTone(stat.key, stat.trend)}`}>
-                        {stat.trend === 'up' ? '▲' : stat.trend === 'down' ? '▼' : '―'} {stat.delta}
+                    <div className="rounded-xl border border-border bg-slate-50 p-4 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-base font-semibold text-muted-foreground">오늘의 생활·보건 지수</p>
+                        <span className="text-sm text-muted-foreground">ⓘ</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        {healthIndices.map((item) => (
+                          <div key={item.label} className="flex flex-col items-center gap-3 rounded-lg bg-white/80 p-3">
+                            <div className={`flex h-12 w-12 items-center justify-center rounded-full border-4 ${item.ring} ${item.tone} text-lg`}>
+                              {item.face}
+                            </div>
+                            <span className={`text-sm font-semibold ${item.tone}`}>{item.status}</span>
+                            <span className="text-center text-xs text-muted-foreground">{item.label}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        기상청, 국민건강보험공단 발표, 웨더아이 제공 · {updateLabel}
                       </p>
-                    </CardContent>
-                  </Card>
-                );
-              })}
+                    </div>
+                  </div>
+
+                  <AnimatePresence>
+                    {selectedResident && (
+                      <ResidentDetailOverlay
+                        resident={selectedResident}
+                        detail={selectedResidentDetail}
+                        onClose={() => setSelectedResidentId(null)}
+                      />
+                    )}
+                    {!selectedResident && selectedData && (
+                      <RoomDetailOverlay room={selectedData} onClose={() => setSelectedRoom(null)} />
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
             </div>
           </div>
-
         </CardContent>
       </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Daily Health Indices */}
-        <Card>
-          <CardHeader className="pb-1 pt-4 px-5">
-            <div className="flex items-center gap-2">
-              <CardTitle className="text-[23px]">오늘의 생활·보건 지수</CardTitle>
-              <span className="text-xs text-muted-foreground">ⓘ</span>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3 px-5 pb-4">
-            <div className="flex flex-wrap justify-between gap-4">
-              {healthIndices.map((item) => (
-                <div key={item.label} className="flex min-w-[96px] flex-1 flex-col items-center gap-2">
-                  <div className={`flex h-14 w-14 items-center justify-center rounded-full border-4 ${item.ring} ${item.tone} text-lg`}>
-                    {item.face}
-                  </div>
-                  <span className={`text-xs font-semibold ${item.tone}`}>{item.status}</span>
-                  <span className="text-center text-xs text-muted-foreground">{item.label}</span>
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              기상청, 국민건강보험공단 발표, 웨더아이 제공 · {updateLabel}
-            </p>
-          </CardContent>
-        </Card>
-
         {/* Admin Alerts */}
         <Card>
           <CardHeader className="pb-1 pt-4 px-5">
-            <CardTitle className="text-[23px]">관리자 알림</CardTitle>
+            <CardTitle className="text-[23px]">요양원 지침</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 px-5 pb-4 text-sm">
-            <div className="rounded-lg border border-border p-3 space-y-1.5">
-              <div className="flex gap-2">
-                <span>⚠️</span>
-                <div className="space-y-1">
-                  <p>[경고] 현재 '독감' 유행 중입니다. 면회객 통제 수준을 강화하세요.</p>
-                  <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-                    <li>발열 확인, 호흡기 증상 확인하여 기록</li>
-                    <li>출입시에는 마스크 착용 및 손위생 실시</li>
-                  </ul>
-                </div>
-              </div>
-              <div className="h-3"></div>
-              <div className="flex gap-2">
-                <span>💡</span>
-                <div className="space-y-1">
-                  <p>[권고] 실내 습도가 낮습니다. 가습기 가동 및 환기 시간을 조정하세요.</p>
-                  <p className="text-xs text-muted-foreground">권장 습도: 40~50%를 유지하세요</p>
-                </div>
+          <CardContent className="space-y-4 px-5 pb-4 text-sm">
+            <div className="flex gap-2">
+              <span>⚠️</span>
+              <div className="space-y-1">
+                <p>[경고] 현재 '독감' 유행 중입니다. 면회객 통제 수준을 강화하세요.</p>
+                <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                  <li>발열 확인, 호흡기 증상 확인하여 기록</li>
+                  <li>출입시에는 마스크 착용 및 손위생 실시</li>
+                </ul>
               </div>
             </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Channel Performance */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-[23px]">Channel Performance</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {channelStats.map((channel) => {
-              const Icon = channel.icon;
-              const responseRate = ((channel.responded / channel.sent) * 100).toFixed(1);
-              
-              return (
-                <div key={channel.name} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-lg ${channel.color} flex items-center justify-center`}>
-                      <Icon className="w-4 h-4 text-white" />
-                    </div>
-                    <div>
-                      <p className="font-medium">{channel.name}</p>
-                      <p className="text-sm text-muted-foreground">{channel.sent} sent</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-medium">{responseRate}%</p>
-                    <p className="text-sm text-muted-foreground">response rate</p>
-                  </div>
-                </div>
-              );
-            })}
+            <div className="flex gap-2">
+              <span>💡</span>
+              <div className="space-y-1">
+                <p>[권고] 실내 습도가 낮습니다. 가습기 가동 및 환기 시간을 조정하세요.</p>
+                <p className="text-xs text-muted-foreground">권장 습도: 40~50%를 유지하세요</p>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
         {/* Recent Activity */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-[23px]">Recent Activity</CardTitle>
+            <CardTitle className="text-[23px]">요양원 공지사항</CardTitle>
             <Button variant="ghost" size="sm">
               View All <ArrowRight className="w-4 h-4 ml-1" />
             </Button>
@@ -565,32 +490,558 @@ export function Dashboard() {
         </Card>
       </div>
 
-      {/* Quick Actions */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-[23px]">Quick Actions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Button variant="outline" className="h-24 flex-col gap-2">
-              <Upload className="w-6 h-6" />
-              Import Data
-            </Button>
-            <Button variant="outline" className="h-24 flex-col gap-2">
-              <FileText className="w-6 h-6" />
-              New Template
-            </Button>
-            <Button variant="outline" className="h-24 flex-col gap-2">
-              <Users className="w-6 h-6" />
-              Create Campaign
-            </Button>
-            <Button variant="outline" className="h-24 flex-col gap-2">
-              <BarChart3 className="w-6 h-6" />
-              View Reports
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
     </div>
+  );
+}
+
+function WestWingFloorPlan({
+  selectedRoom,
+  onSelect,
+  onBedSelect
+}: {
+  selectedRoom: string | null;
+  onSelect: (id: string) => void;
+  onBedSelect: (residentId: string) => void;
+}) {
+  const bedWidth = 78;
+  const bedHeight = 88;
+  const bedRadius = 20;
+  const bedPillowWidth = 30;
+  const bedPillowHeight = 12;
+  const bedPillowInset = 6;
+  const bedGap = 16;
+  const bedGapDouble = 22;
+
+  const roomBedConfig: Record<
+    string,
+    { x: number; y: number; width: number; height: number; layout: '2x2' | '1x2' | '1x1' }
+  > = {
+    T1: { x: 88.5, y: 30, width: 226, height: 200, layout: '2x2' },
+    T2: { x: 314.5, y: 30, width: 152.9, height: 200, layout: '1x2' },
+    T3: { x: 467.4, y: 30, width: 99.85, height: 200, layout: '1x1' },
+    T4: { x: 567.25, y: 30, width: 99.85, height: 200, layout: '1x1' },
+    T5: { x: 667.1, y: 30, width: 152.9, height: 200, layout: '1x2' },
+    B1: { x: 165.5, y: 270, width: 152.9, height: 200, layout: '1x2' },
+    B2: { x: 318.4, y: 270, width: 152.9, height: 200, layout: '1x2' },
+    B3: { x: 471.3, y: 270, width: 152.9, height: 200, layout: '1x2' },
+    B4: { x: 624.2, y: 270, width: 152.9, height: 200, layout: '1x2' },
+    B5: { x: 777.1, y: 270, width: 152.9, height: 200, layout: '1x2' }
+  };
+
+  const buildBeds = (roomId: string) => {
+    const room = roomBedConfig[roomId];
+    if (!room) return [];
+    const topRoomShift = roomId.startsWith('T') && room.layout !== '1x1' ? -4 : 0;
+    const upperBedOffset = room.layout === '1x2' || room.layout === '2x2' ? 6 : 0;
+    if (room.layout === '2x2') {
+      const totalWidth = bedWidth * 2 + bedGapDouble;
+      const totalHeight = bedHeight * 2 + bedGap;
+      const startX = room.x + (room.width - totalWidth) / 2;
+      const startY = room.y + (room.height - totalHeight) / 2 + topRoomShift;
+      return [
+        { x: startX, y: startY + upperBedOffset, width: bedWidth, height: bedHeight, rotation: 0 },
+        { x: startX + bedWidth + bedGapDouble, y: startY + upperBedOffset, width: bedWidth, height: bedHeight, rotation: 0 },
+        { x: startX, y: startY + bedHeight + bedGap, width: bedWidth, height: bedHeight, rotation: 0 },
+        { x: startX + bedWidth + bedGapDouble, y: startY + bedHeight + bedGap, width: bedWidth, height: bedHeight, rotation: 0 }
+      ];
+    }
+    if (room.layout === '1x2') {
+      const totalHeight = bedHeight * 2 + bedGap;
+      const startX = room.x + (room.width - bedWidth) / 2;
+      const startY = room.y + (room.height - totalHeight) / 2 + topRoomShift;
+      return [
+        { x: startX, y: startY + upperBedOffset, width: bedWidth, height: bedHeight, rotation: 0 },
+        { x: startX, y: startY + bedHeight + bedGap, width: bedWidth, height: bedHeight, rotation: 0 }
+      ];
+    }
+    const startX = room.x + (room.width - bedWidth) / 2;
+    const startY = room.y + (room.height - bedHeight) / 2;
+    return [{ x: startX, y: startY, width: bedWidth, height: bedHeight, rotation: 0 }];
+  };
+
+  const bedLayouts = Object.keys(roomBedConfig).flatMap((roomId) =>
+    buildBeds(roomId).map((bed, index) => ({ roomId, bed, index }))
+  );
+  const assignedResidents = immuneResidents.slice(0, bedLayouts.length);
+  const bedLayoutsWithResidents = bedLayouts.map((entry, index) => ({
+    ...entry,
+    resident: assignedResidents[index]
+  }));
+  const bedFillByRisk: Record<Resident['risk'], string> = {
+    critical: '#ffe8ea',
+    high: '#fff2e2',
+    moderate: '#fff7d6',
+    low: '#d1fae5'
+  };
+
+  return (
+    <div className="west-wing-plan">
+      <style>{`
+        .west-wing-plan .fill-green-50 { fill: #F8FBFF !important; }
+        .west-wing-plan .fill-slate-50 { fill: #F8FBFF !important; }
+        .west-wing-plan .fill-amber-50 { fill: #F8FBFF !important; }
+        .west-wing-plan .fill-red-50 { fill: #F8FBFF !important; }
+        .west-wing-plan .stroke-green-200,
+        .west-wing-plan .stroke-slate-200,
+        .west-wing-plan .stroke-amber-200,
+        .west-wing-plan .stroke-red-200 {
+          stroke: #0f172a !important;
+        }
+      `}</style>
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-3 lg:p-4">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-xl font-semibold text-slate-800">2F</h2>
+            <p className="text-sm text-slate-500"></p>
+          </div>
+          <div className="flex gap-3">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-50 text-green-700 text-xs font-medium">
+              <div className="w-2 h-2 rounded-full bg-green-500" />
+              Live Monitoring
+            </div>
+          </div>
+        </div>
+
+        <div className="relative aspect-[2/1] w-full">
+          <svg
+            viewBox="0 0 1000 500"
+            className="w-full h-full drop-shadow-md"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <rect width="1000" height="500" fill="transparent" />
+
+            <g className="cursor-pointer transition-all duration-300">
+              <motion.path
+                d="M 88.5 30 L 314.5 30 L 314.5 230 L 88.5 230 Z"
+                className={getStatusColor(westWingRooms.T1.status, selectedRoom === 'T1')}
+                strokeWidth="2"
+                onClick={() => onSelect('T1')}
+                whileHover={{ opacity: 0.8 }}
+              />
+              <motion.path
+                d="M 314.5 30 L 467.4 30 L 467.4 230 L 314.5 230 Z"
+                className={getStatusColor(westWingRooms.T2.status, selectedRoom === 'T2')}
+                strokeWidth="2"
+                onClick={() => onSelect('T2')}
+                whileHover={{ opacity: 0.8 }}
+              />
+              <motion.path
+                d="M 467.4 30 L 567.25 30 L 567.25 230 L 467.4 230 Z"
+                className={getStatusColor(westWingRooms.T3.status, selectedRoom === 'T3')}
+                strokeWidth="2"
+                onClick={() => onSelect('T3')}
+                whileHover={{ opacity: 0.8 }}
+              />
+              <motion.path
+                d="M 567.25 30 L 667.1 30 L 667.1 230 L 567.25 230 Z"
+                className={getStatusColor(westWingRooms.T4.status, selectedRoom === 'T4')}
+                strokeWidth="2"
+                onClick={() => onSelect('T4')}
+                whileHover={{ opacity: 0.8 }}
+              />
+              <motion.path
+                d="M 667.1 30 L 820 30 L 820 230 L 667.1 230 Z"
+                className={getStatusColor(westWingRooms.T5.status, selectedRoom === 'T5')}
+                strokeWidth="2"
+                onClick={() => onSelect('T5')}
+                whileHover={{ opacity: 0.8 }}
+              />
+              <motion.path
+                d="M 820 30 L 930 30 L 930 140 L 820 140 Z"
+                className={getStatusColor(westWingRooms.T6.status, selectedRoom === 'T6')}
+                strokeWidth="2"
+                onClick={() => onSelect('T6')}
+                whileHover={{ opacity: 0.8 }}
+              />
+
+              <motion.path
+                d="M 165.5 270 L 318.4 270 L 318.4 470 L 165.5 470 Z"
+                className={getStatusColor(westWingRooms.B1.status, selectedRoom === 'B1')}
+                strokeWidth="2"
+                onClick={() => onSelect('B1')}
+                whileHover={{ opacity: 0.8 }}
+              />
+              <motion.path
+                d="M 318.4 270 L 471.3 270 L 471.3 470 L 318.4 470 Z"
+                className={getStatusColor(westWingRooms.B2.status, selectedRoom === 'B2')}
+                strokeWidth="2"
+                onClick={() => onSelect('B2')}
+                whileHover={{ opacity: 0.8 }}
+              />
+              <motion.path
+                d="M 471.3 270 L 624.2 270 L 624.2 470 L 471.3 470 Z"
+                className={getStatusColor(westWingRooms.B3.status, selectedRoom === 'B3')}
+                strokeWidth="2"
+                onClick={() => onSelect('B3')}
+                whileHover={{ opacity: 0.8 }}
+              />
+              <motion.path
+                d="M 624.2 270 L 777.1 270 L 777.1 470 L 624.2 470 Z"
+                className={getStatusColor(westWingRooms.B4.status, selectedRoom === 'B4')}
+                strokeWidth="2"
+                onClick={() => onSelect('B4')}
+                whileHover={{ opacity: 0.8 }}
+              />
+              <motion.path
+                d="M 777.1 270 L 930 270 L 930 470 L 777.1 470 Z"
+                className={getStatusColor(westWingRooms.B5.status, selectedRoom === 'B5')}
+                strokeWidth="2"
+                onClick={() => onSelect('B5')}
+                whileHover={{ opacity: 0.8 }}
+              />
+
+              <motion.path
+                d="M 10 250 L 88.5 140"
+                fill="none"
+                stroke="#0f172a"
+                strokeWidth="4"
+              />
+              <motion.path
+                d="M 10 250 L 88.5 360"
+                fill="none"
+                stroke="#0f172a"
+                strokeWidth="4"
+              />
+            </g>
+
+            <g fill="none" stroke="#0f172a" strokeWidth="4" strokeLinecap="square">
+              <path d="M 88.5 30 L 930 30" />
+              <path d="M 88.5 230 L 176.5 230" />
+              <path d="M 226.5 230 L 365.95 230" />
+              <path d="M 415.95 230 L 492.33 230" />
+              <path d="M 542.33 230 L 592.17 230" />
+              <path d="M 642.17 230 L 718.55 230" />
+              <path d="M 768.55 230 L 820 230" />
+              <path d="M 820 140 L 930 140" />
+              
+              <path d="M 88.5 30 L 88.5 230" />
+              <path d="M 314.5 30 L 314.5 230" />
+              <path d="M 467.4 30 L 467.4 230" />
+              <path d="M 567.25 30 L 567.25 230" />
+              <path d="M 667.1 30 L 667.1 230" />
+              <path d="M 820 30 L 820 230" />
+              <path d="M 930 30 L 930 470" />
+
+              <path d="M 165.5 470 L 930 470" />
+              <path d="M 165.5 270 L 217 270" />
+              <path d="M 267 270 L 369.9 270" />
+              <path d="M 419.9 270 L 522.8 270" />
+              <path d="M 572.8 270 L 675.7 270" />
+              <path d="M 725.7 270 L 828.6 270" />
+              <path d="M 878.6 270 L 930 270" />
+
+              <path d="M 165.5 270 L 165.5 470" />
+              <path d="M 318.4 270 L 318.4 470" />
+              <path d="M 471.3 270 L 471.3 470" />
+              <path d="M 624.2 270 L 624.2 470" />
+              <path d="M 777.1 270 L 777.1 470" />
+              
+              <path d="M 88.5 360 L 165.5 360" />
+            </g>
+
+            <g fill="none" strokeWidth="4" strokeLinecap="square">
+              {/* Door threshold highlights */}
+              <path d="M 176.5 230 L 226.5 230" stroke={getDoorStroke()} />
+              <path d="M 365.95 230 L 415.95 230" stroke={getDoorStroke()} />
+              <path d="M 492.33 230 L 542.33 230" stroke={getDoorStroke()} />
+              <path d="M 592.17 230 L 642.17 230" stroke={getDoorStroke()} />
+              <path d="M 718.55 230 L 768.55 230" stroke={getDoorStroke()} />
+              <path d="M 217 270 L 267 270" stroke={getDoorStroke()} />
+              <path d="M 369.9 270 L 419.9 270" stroke={getDoorStroke()} />
+              <path d="M 522.8 270 L 572.8 270" stroke={getDoorStroke()} />
+              <path d="M 675.7 270 L 725.7 270" stroke={getDoorStroke()} />
+              <path d="M 828.6 270 L 878.6 270" stroke={getDoorStroke()} />
+            </g>
+
+            <g stroke="#cbd5e1" strokeWidth="1">
+              <rect x="940" y="50" width="60" height="150" fill="#f8fafc" stroke="#e2e8f0" />
+              {[...Array(8)].map((_, i) => (
+                <line key={`st1-${i}`} x1="940" y1={50 + i * 18} x2="1000" y2={50 + i * 18} />
+              ))}
+              <path d="M 970 180 L 970 70 L 965 80 M 970 70 L 975 80" stroke="#64748b" strokeWidth="2" fill="none" />
+              
+              <rect x="940" y="410" width="60" height="60" fill="#f8fafc" stroke="#e2e8f0" />
+              {[...Array(6)].map((_, i) => (
+                <line key={`sb1-${i}`} x1={940 + i * 12} y1="410" x2={940 + i * 12} y2="470" />
+              ))}
+              <path d="M 952 440 L 988 440 L 978 435 M 988 440 L 978 445" stroke="#64748b" strokeWidth="2" fill="none" />
+              <text x="970" y="40" textAnchor="middle" fontSize="13" fontWeight="700" fill="#000000" style={{ animation: 'none' }}>3F</text>
+              <text x="970" y="492" textAnchor="middle" fontSize="13" fontWeight="700" fill="#000000" style={{ animation: 'none' }}>1F</text>
+            </g>
+
+            <g pointerEvents="none" className="select-none">
+              <text x="500" y="255" fill="#808080" fontSize="12" fontWeight="700" textAnchor="middle">MAIN CORRIDOR</text>
+            </g>
+
+            <g pointerEvents="none">
+              {Object.entries(westWingRooms).map(([id, room]) => {
+                if (room.type !== 'patient') return null;
+                const coords: Record<string, [number, number]> = {
+                  T1: [106.5, 50], T2: [332.5, 50], T3: [485.4, 50], T4: [585.25, 50], T5: [685.1, 50],
+                  B1: [183.5, 290], B2: [336.4, 290], B3: [489.3, 290], B4: [642.2, 290], B5: [795.1, 290]
+                };
+                const [cx, cy] = coords[id] || [0, 0];
+                if (cx === 0) return null;
+
+                return (
+                  <circle
+                    key={`status-${id}`}
+                    cx={cx}
+                    cy={cy}
+                    r="6"
+                    fill={getStatusDotFill(room.status)}
+                    stroke="#ffffff"
+                    strokeWidth="2"
+                  />
+                );
+              })}
+            </g>
+
+            <g>
+              {bedLayoutsWithResidents.map(({ roomId, bed, index, resident }) => {
+                const cx = bed.x + bed.width / 2;
+                const cy = bed.y + bed.height / 2;
+                const rotation = bed.rotation ?? 0;
+                const labelOffset = 0;
+                const bedFill = bedFillByRisk[resident.risk];
+                return (
+                  <g
+                    key={`${roomId}-bed-${index}`}
+                    onClick={() => onBedSelect(resident.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        onBedSelect(resident.id);
+                      }
+                    }}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`${resident.name} 선택`}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <g transform={`rotate(${rotation} ${cx} ${cy})`}>
+                      <rect
+                        x={bed.x}
+                        y={bed.y}
+                        width={bed.width}
+                        height={bed.height}
+                        rx={bedRadius}
+                        fill={bedFill}
+                        stroke="#0f172a"
+                        strokeWidth="2"
+                      />
+                      <rect
+                        x={bed.x + (bed.width - bedPillowWidth) / 2}
+                        y={bed.y + bedPillowInset}
+                        width={bedPillowWidth}
+                        height={bedPillowHeight}
+                        rx={bedPillowHeight / 2}
+                        fill="#f8fafc"
+                        stroke="#94a3b8"
+                        strokeWidth="1.5"
+                      />
+                    </g>
+                    <text
+                      x={cx}
+                      y={cy - 6}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      fontSize="14"
+                      fontWeight="600"
+                      fill="#334155"
+                      style={{ pointerEvents: 'none' }}
+                    >
+                      {resident.name}
+                    </text>
+                    <text
+                      x={cx}
+                      y={cy + 12}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      fontSize="13"
+                      fontWeight="600"
+                      fill={resident.risk === 'critical' ? '#ef4444' : '#475569'}
+                      style={{ pointerEvents: 'none' }}
+                    >
+                      {resident.score.toFixed(1)}
+                    </text>
+                  </g>
+                );
+              })}
+            </g>
+
+          </svg>
+        </div>
+
+        <div className="mt-6 flex flex-wrap gap-4 text-xs font-medium text-slate-500">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-green-500" />
+            <span>Occupied</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-slate-200" />
+            <span>Available</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-amber-500" />
+            <span>Maintenance</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-red-500" />
+            <span>Alert</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RoomDetailOverlay({ room, onClose }: { room: WestWingRoom; onClose: () => void }) {
+  const env = room.environment ?? {
+    temperature: 24,
+    humidity: 42,
+    targetTemperature: 24,
+    targetHumidity: 45
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 12 }}
+      transition={{ duration: 0.22, ease: 'easeOut' }}
+      className="absolute inset-0 z-20"
+    >
+      <div className="h-full w-full rounded-2xl border border-slate-100 bg-white p-6 shadow-lg flex flex-col">
+        <div className="flex items-start justify-between mb-6">
+          <div>
+            <h3 className="text-xl font-bold text-slate-800">{room.name}</h3>
+            <span className="text-sm text-slate-500">환경 설정</span>
+          </div>
+          <button 
+            onClick={onClose}
+            className="p-1 hover:bg-slate-100 rounded-full transition-colors"
+          >
+            <ChevronRight className="w-5 h-5 text-slate-400 rotate-180" />
+          </button>
+        </div>
+
+        <div className="space-y-6">
+          <section className="grid grid-cols-2 gap-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-slate-700">온도</p>
+                <span className="text-xs text-slate-500">현재 {env.temperature.toFixed(1)}°C</span>
+              </div>
+              <div className="mt-4 flex items-center justify-between">
+                <button className="h-8 w-8 rounded-full border border-slate-200 bg-white text-slate-500">-</button>
+                <span className="text-lg font-bold text-slate-800">{env.targetTemperature}°C</span>
+                <button className="h-8 w-8 rounded-full border border-slate-200 bg-white text-slate-500">+</button>
+              </div>
+              <p className="mt-2 text-xs text-center text-slate-400">권장 24~26°C</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-slate-700">습도</p>
+                <span className="text-xs text-slate-500">현재 {env.humidity}%</span>
+              </div>
+              <div className="mt-4 flex items-center justify-between">
+                <button className="h-8 w-8 rounded-full border border-slate-200 bg-white text-slate-500">-</button>
+                <span className="text-lg font-bold text-slate-800">{env.targetHumidity}%</span>
+                <button className="h-8 w-8 rounded-full border border-slate-200 bg-white text-slate-500">+</button>
+              </div>
+              <p className="mt-2 text-xs text-center text-slate-400">권장 40~50%</p>
+            </div>
+          </section>
+          <div className="rounded-xl border border-slate-100 bg-white p-4 text-xs text-slate-500">
+            설정 변경은 관리자 승인 후 적용됩니다.
+          </div>
+        </div>
+
+        <div className="mt-auto pt-6 border-t border-slate-100">
+          <button className="w-full py-3 bg-slate-900 text-white rounded-xl font-semibold hover:bg-slate-800 transition-colors">
+            설정 저장
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function ResidentDetailOverlay({
+  resident,
+  detail,
+  onClose
+}: {
+  resident: Resident;
+  detail: ResidentDetail | null;
+  onClose: () => void;
+}) {
+  const riskLabelMap: Record<Resident['risk'], string> = {
+    critical: '위험',
+    high: '주의',
+    moderate: '보통',
+    low: '양호'
+  };
+  const riskToneMap: Record<Resident['risk'], { badge: string; text: string }> = {
+    critical: { badge: 'bg-red-100 text-red-700', text: 'text-red-600' },
+    high: { badge: 'bg-amber-100 text-amber-700', text: 'text-amber-600' },
+    moderate: { badge: 'bg-sky-100 text-sky-700', text: 'text-sky-600' },
+    low: { badge: 'bg-emerald-100 text-emerald-700', text: 'text-emerald-600' }
+  };
+  const tones = riskToneMap[resident.risk];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 12 }}
+      transition={{ duration: 0.22, ease: 'easeOut' }}
+      className="absolute inset-0 z-20"
+    >
+      <div className="h-full w-full rounded-2xl border border-slate-100 bg-white p-6 shadow-lg flex flex-col">
+        <div className="flex items-start justify-between mb-5">
+          <div>
+            <h3 className="text-xl font-bold text-slate-800">{resident.name}</h3>
+            <p className="text-sm text-slate-500">{resident.room} · {resident.age}세 · {resident.gender}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-slate-100 rounded-full transition-colors"
+          >
+            <ChevronRight className="w-5 h-5 text-slate-400 rotate-180" />
+          </button>
+        </div>
+
+        <div className="flex items-center gap-3 mb-6">
+          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${tones.badge}`}>
+            {riskLabelMap[resident.risk]}
+          </span>
+          <span className={`text-sm font-semibold ${tones.text}`}>면역 점수 {resident.score.toFixed(1)}</span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">기저질환</p>
+            <p className="mt-2 text-sm text-slate-700">
+              {detail?.conditions?.length ? detail.conditions.join(', ') : '기록 없음'}
+            </p>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">복용 약</p>
+            <p className="mt-2 text-sm text-slate-700">
+              {detail?.meds?.length ? detail.meds.join(', ') : '기록 없음'}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-slate-100 bg-white p-4">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">특이사항</p>
+          <p className="mt-2 text-sm text-slate-600">
+            {detail?.actions?.length ? detail.actions[0].title : '추가 알림 없음'}
+          </p>
+        </div>
+      </div>
+    </motion.div>
   );
 }
