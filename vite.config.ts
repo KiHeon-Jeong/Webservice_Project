@@ -4,6 +4,7 @@ import * as cheerio from "cheerio";
 
 const CACHE_TTL_MS = 1000 * 60 * 10;
 const pillyzeCache = new Map<string, { timestamp: number; payload: unknown }>();
+const backendTarget = process.env.VITE_BACKEND_URL ?? "http://127.0.0.1:8000";
 
 const pillyzeProxy = (): Plugin => ({
   name: "pillyze-proxy",
@@ -101,4 +102,24 @@ const pillyzeProxy = (): Plugin => ({
 
 export default defineConfig({
   plugins: [react(), pillyzeProxy()],
+  server: {
+    proxy: {
+      "/api/immune": {
+        target: backendTarget,
+        changeOrigin: true,
+      },
+      "/api/nutrition": {
+        target: backendTarget,
+        changeOrigin: true,
+      },
+      "/api/health": {
+        target: backendTarget,
+        changeOrigin: true,
+      },
+      "/api/admin": {
+        target: backendTarget,
+        changeOrigin: true,
+      },
+    },
+  },
 });

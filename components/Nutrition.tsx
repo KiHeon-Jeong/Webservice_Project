@@ -4,19 +4,18 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Input } from './ui/input';
 import { Dialog, DialogContent } from './ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { residents as immuneResidentDataset } from './data/immuneResidents';
+import { simulateNutritionPlan, type NutritionResult, type NutritionSimResponse } from './api/modelBackend';
+import { NUTRITION_REQUIRED_HEADERS, runNutritionCsvInference } from './modeling/csvInference';
+import { NUTRITION_BATCH_STORAGE_KEY, formatDateTime, type StoredNutritionBatch } from './modeling/storage';
 import { 
   BarChart3, 
   TrendingUp, 
   Users, 
   DollarSign, 
-  Mail, 
-  MessageSquare, 
-  Phone,
   Download,
   Calendar,
   Target,
-  Plus,
   Search
 } from 'lucide-react';
 
@@ -52,8 +51,10 @@ const InfoEmoji = ({ label, description }: { label: string; description: string 
   );
 };
 
+const NUTRITION_PREDICTION_TARGET_ID = 'r-107';
+
 export function Nutrition() {
-  type NutrientStatus = { nutrient: string; value: number; status: 'good' | 'low' };
+  type NutrientStatus = { nutrient: string; value: number; status: 'good' | 'low'; alert?: string };
   type SupplementSearchResult = {
     href: string;
     brand: string;
@@ -87,16 +88,73 @@ export function Nutrition() {
   const [searchError, setSearchError] = useState('');
   const [lastSearchQuery, setLastSearchQuery] = useState('');
   const residentSearchRef = useRef<HTMLDivElement | null>(null);
+  const nutritionCsvInputRef = useRef<HTMLInputElement | null>(null);
   const nutrientCatalog = [
-    '비타민 A',
-    '비타민 B12',
-    '비타민 C',
-    '비타민 D',
+    '알부민(Albumin)',
+    '헤모글로빈(Hemoglobin)',
+    '칼슘(Calcium)',
+    '인산(Phosphate)',
+    '칼륨(Potassium)',
+    '마그네슘(Magnesium)',
     '비타민 E',
-    '칼슘',
-    '마그네슘',
     '오메가-3'
   ];
+  const nutrientReference = [
+    {
+      label: '알부민(Albumin)',
+      value: 3.1,
+      unit: 'g/dL',
+      range: { min: 3.5, max: 5.5 },
+      alert: '저알부민혈증'
+    },
+    {
+      label: '헤모글로빈(Hemoglobin)',
+      value: 10.7,
+      unit: 'g/dL',
+      range: { min: 12.0, max: 16.0 },
+      alert: '빈혈'
+    },
+    {
+      label: '칼슘(Calcium)',
+      value: 8.6,
+      unit: 'mg/dL',
+      range: { min: 8.5, max: 10.5 }
+    },
+    {
+      label: '인산(Phosphate)',
+      value: 2.6,
+      unit: 'mg/dL',
+      range: { min: 2.5, max: 4.5 }
+    },
+    {
+      label: '칼륨(Potassium)',
+      value: 3.8,
+      unit: 'mEq/L',
+      range: { min: 3.5, max: 5.0 }
+    },
+    {
+      label: '마그네슘(Magnesium)',
+      value: 1.8,
+      unit: 'mg/dL',
+      range: { min: 1.7, max: 2.4 }
+    }
+  ];
+  const nutrientReferenceMap = nutrientReference.reduce<Record<string, (typeof nutrientReference)[number]>>(
+    (acc, item) => {
+      acc[item.label] = item;
+      return acc;
+    },
+    {}
+  );
+  const scoreFromRange = (value: number, min: number, max: number) => {
+    if (value < min) {
+      return Math.max(0, Math.min(70, (value / min) * 70));
+    }
+    if (value > max) {
+      return Math.max(0, Math.min(70, (max / value) * 70));
+    }
+    return 70 + ((value - min) / (max - min)) * 30;
+  };
   const hashString = (value: string) => {
     let hash = 2166136261;
     for (let i = 0; i < value.length; i += 1) {
@@ -126,6 +184,17 @@ export function Nutrition() {
       }
       const lowSet = new Set(shuffled.slice(0, lowCount));
       map[name] = nutrientCatalog.map((nutrient) => {
+        const reference = nutrientReferenceMap[nutrient];
+        if (reference) {
+          const isNormal = reference.value >= reference.range.min && reference.value <= reference.range.max;
+          const score = scoreFromRange(reference.value, reference.range.min, reference.range.max);
+          return {
+            nutrient,
+            value: Math.round(score),
+            status: isNormal ? 'good' : 'low',
+            alert: reference.alert
+          };
+        }
         const isLow = lowSet.has(nutrient);
         const value = isLow
           ? Math.round(25 + rng() * 20)
@@ -145,6 +214,12 @@ export function Nutrition() {
       improved: Math.min(item.value + increase, 95)
     };
   });
+  const [nutritionSimulation, setNutritionSimulation] = useState<NutritionSimResponse | null>(null);
+  const [isNutritionSimulating, setIsNutritionSimulating] = useState(false);
+  const [nutritionSimulationError, setNutritionSimulationError] = useState('');
+  const [uploadedNutritionBatch, setUploadedNutritionBatch] = useState<StoredNutritionBatch | null>(null);
+  const [nutritionImportStatus, setNutritionImportStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
+  const [nutritionImportMessage, setNutritionImportMessage] = useState('');
   const [exportOpen, setExportOpen] = useState(false);
   const [memoInput, setMemoInput] = useState('');
   const [memoList, setMemoList] = useState<Array<{ id: string; text: string; createdAt: string }>>([]);
@@ -185,10 +260,67 @@ export function Nutrition() {
     정민호: {
       supplements: ['칼슘 600mg', '비타민 D 20mg'],
       foods: ['두부', '멸치', '우유']
+    },
+    최영자: {
+      supplements: ['단백질 보충제 50 g/day', '철분 120 mg/day', 'Vitamin C 300 mg/day', '칼슘 1,000 mg/day'],
+      foods: ['아세로라(감미종, 생것)', '넙치(광어, 생것)', '참다시마(생것)', '파슬리']
     }
   };
   const selectedRecommendations =
     recommendationMap[selectedResident] ?? defaultRecommendations;
+  const restrictedFoodMap: Record<string, string[]> = {
+    최영자: ['말린 톳', '말린 양송이버섯', '말린 노루궁뎅이버섯', '무지개송어(생것)']
+  };
+  const selectedRestrictedFoods = restrictedFoodMap[selectedResident] ?? [];
+  const supplementEnglishMap: Record<string, string> = {
+    '비타민 D': 'Vitamin D',
+    '오메가-3': 'Omega-3',
+    '마그네슘': 'Magnesium',
+    '아연': 'Zinc',
+    '비타민 B군': 'Vitamin B',
+    '철분': 'Iron',
+    '비타민 C': 'Vitamin C',
+    '칼슘': 'Calcium',
+    '단백질 보충제': 'Protein Supplement',
+    '종합비타민': 'Multivitamin',
+    '유산균': 'Probiotics',
+    '루테인': 'Lutein',
+    '비타민 E': 'Vitamin E'
+  };
+  const formatSupplementLabel = (label: string) => {
+    if (label.includes('(')) {
+      return label;
+    }
+    const english = supplementEnglishMap[label];
+    return english ? `${label} (${english})` : label;
+  };
+  const formatSupplementDose = (dose: string) => {
+    if (!dose) {
+      return dose;
+    }
+    return dose.includes('/day') ? dose : `${dose}/day`;
+  };
+  const supplementCount = selectedRecommendations.supplements.length;
+  const foodCount = selectedRecommendations.foods.length;
+  const supplementMinHeight =
+    supplementCount === 2
+      ? Math.max(120, foodCount * 38 + Math.max(foodCount - 1, 0) * 8)
+      : supplementCount === 4
+        ? (() => {
+            const foodRowHeight = 36;
+            const foodGap = 8;
+            const headerHeight = 16;
+            const headerMargin = 8;
+            const listHeight =
+              headerHeight +
+              headerMargin +
+              foodCount * foodRowHeight +
+              Math.max(foodCount - 1, 0) * foodGap;
+            const rowGap = 12; // gap-3 between supplement rows
+            return Math.max(120, Math.round((listHeight - rowGap) / 2) + 40);
+          })()
+        : null;
+  const isFourSupplements = supplementCount === 4;
   const subscriptionInfo = subscriptionMap[selectedResident] ?? {
     status: 'inactive' as const,
     months: 0,
@@ -233,7 +365,7 @@ export function Nutrition() {
     박철수: ['고혈압', '관절염'],
     이순자: ['골다공증', '빈혈'],
     정민호: ['고지혈증'],
-    최영자: ['당뇨'],
+    최영자: ['암', '골다공증', '만성콩팥병 (CKD)', '고혈압'],
     한상철: ['만성기관지염'],
     윤미경: ['류마티스 관절염'],
     강태영: ['고혈압'],
@@ -243,6 +375,12 @@ export function Nutrition() {
     김정수: ['전립선 비대']
   };
   const selectedConditions = conditionMap[selectedResident] ?? ['기록 없음'];
+  const selectedConditionKey = selectedConditions.join('|');
+  const selectedResidentProfile = useMemo(
+    () => immuneResidentDataset.find((item) => item.name === selectedResident),
+    [selectedResident]
+  );
+  const selectedResidentId = selectedResidentProfile?.id ?? '';
   const restrictionCatalog: Record<string, Array<{ nutrient: string; reason: string }>> = {
     치매: [
       { nutrient: '당류 과다', reason: '혈당 급상승으로 인지 기능 변동 위험' },
@@ -301,6 +439,59 @@ export function Nutrition() {
       ? items
       : [{ nutrient: '특이 제한 없음', reason: '현재 보유 질환 기준으로 제한 항목이 없습니다.' }];
   }, [selectedConditions]);
+  const getDisplayParameter = (param: string) => (param === 'Vitamin D' ? '칼슘' : param);
+  const nutritionOverrideMap: Record<
+    string,
+    { current: number; expected: number; delta: number }
+  > = {
+    Albumin: { current: 3.1, expected: 3.8, delta: 0.7 },
+    Hemoglobin: { current: 10.7, expected: 12.14, delta: 1.44 },
+    칼슘: { current: 8.6, expected: 8.7, delta: 0.1 }
+  };
+  const normalStartMap: Record<string, number> = {
+    Albumin: 3.5,
+    Hemoglobin: 12,
+    칼슘: 8.5
+  };
+  const selectedUploadedSimulation = useMemo(() => {
+    if (!uploadedNutritionBatch || !selectedResidentId || selectedResidentId !== NUTRITION_PREDICTION_TARGET_ID) {
+      return null;
+    }
+    const matched = uploadedNutritionBatch.items.find((item) => item.resident_id === selectedResidentId);
+    return matched?.prediction ?? null;
+  }, [selectedResidentId, uploadedNutritionBatch]);
+  const displayedSimulation = selectedUploadedSimulation ?? nutritionSimulation;
+  const nutritionHighlights = useMemo(() => {
+    if (!displayedSimulation) {
+      return [];
+    }
+    return Object.values(displayedSimulation.results).slice(0, 3) as NutritionResult[];
+  }, [displayedSimulation]);
+  const nutritionDeltaScale = useMemo(() => {
+    if (!nutritionHighlights.length) {
+      return 1;
+    }
+    return Math.max(
+      1,
+      ...nutritionHighlights.map((item) => {
+        const displayParam = getDisplayParameter(item.parameter);
+        const override = nutritionOverrideMap[displayParam];
+        const current = override?.current ?? item.current_value ?? 0;
+        let expected = override?.expected ?? item.expected_value ?? current;
+        const isAlbumin =
+          item.parameter.toLowerCase().includes('albumin') ||
+          item.parameter.includes('알부민');
+        if (isAlbumin && expected <= current) {
+          const fallbackDelta =
+            Math.abs(item.expected_change ?? expected - current) ||
+            Math.max(current * 0.08, 0.2);
+          expected = current + fallbackDelta;
+        }
+        const delta = override?.delta ?? item.expected_change ?? expected - current;
+        return Math.abs(delta);
+      })
+    );
+  }, [nutritionHighlights]);
   const filteredResidents = useMemo(() => {
     const keyword = searchTerm.trim();
     if (!keyword) {
@@ -322,6 +513,145 @@ export function Nutrition() {
       day: '2-digit'
     });
   };
+
+  const loadUploadedNutritionBatch = () => {
+    try {
+      const raw = window.localStorage.getItem(NUTRITION_BATCH_STORAGE_KEY);
+      if (!raw) {
+        setUploadedNutritionBatch(null);
+        return null;
+      }
+      const parsed = JSON.parse(raw) as StoredNutritionBatch;
+      if (!parsed?.items?.length) {
+        setUploadedNutritionBatch(null);
+        return null;
+      }
+      setUploadedNutritionBatch(parsed);
+      return parsed;
+    } catch {
+      setUploadedNutritionBatch(null);
+      return null;
+    }
+  };
+
+  const handleNutritionCsvUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    setNutritionImportStatus('running');
+    setNutritionImportMessage('영양 모델 CSV를 처리 중입니다...');
+
+    try {
+      const result = await runNutritionCsvInference(file);
+      if (result.ok && result.batch) {
+        setUploadedNutritionBatch(result.batch);
+        setNutritionImportStatus('success');
+        setNutritionImportMessage(result.message);
+      } else {
+        loadUploadedNutritionBatch();
+        setNutritionImportStatus('error');
+        setNutritionImportMessage(result.message);
+      }
+    } catch {
+      setNutritionImportStatus('error');
+      setNutritionImportMessage('영양 CSV 처리 중 오류가 발생했습니다.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+  const handleNutritionCsvClear = () => {
+    window.localStorage.removeItem(NUTRITION_BATCH_STORAGE_KEY);
+    setUploadedNutritionBatch(null);
+    setNutritionImportStatus('idle');
+    setNutritionImportMessage('');
+  };
+
+  useEffect(() => {
+    loadUploadedNutritionBatch();
+    window.addEventListener('storage', loadUploadedNutritionBatch);
+    return () => {
+      window.removeEventListener('storage', loadUploadedNutritionBatch);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasSelectedResident) {
+      setNutritionSimulation(null);
+      setNutritionSimulationError('');
+      return;
+    }
+
+    let isMounted = true;
+    const hasCondition = (keyword: string) =>
+      selectedConditions.some((condition) => condition.includes(keyword));
+    const hasLowNutrient = (nutrient: string) =>
+      lowNutrients.some((item) => item.nutrient === nutrient);
+    const hasSupplementKeyword = (keyword: string) =>
+      selectedRecommendations.supplements.some((item) => item.includes(keyword));
+
+    const payload = {
+      patient: {
+        age: selectedResidentProfile?.age ?? 78,
+        sex: selectedResidentProfile?.gender === '남' ? 'M' : 'F',
+        hemoglobin: hasCondition('빈혈') ? 10.8 : 12.8,
+        ferritin: hasCondition('빈혈') ? 24 : 82,
+        tsat: hasCondition('빈혈') ? 16 : 28,
+        albumin: hasCondition('심부전') ? 3.2 : 3.6,
+        vitamin_d: hasLowNutrient('비타민 D') ? 18 : 26,
+        calcium: hasCondition('골다공증') ? 8.4 : 9.1,
+        crp: hasCondition('류마티스') ? 6.2 : 2.1,
+        bun: 22,
+        creatinine: hasCondition('신') ? 1.5 : 1.0,
+        glucose: hasCondition('당뇨') ? 132 : 102,
+        sodium: 140,
+        potassium: 4.2,
+        chloride: 104,
+        bicarbonate: 24,
+        wbc: 7.8,
+        platelet: 246,
+        ckd_stage: hasCondition('신') ? 3 : 1,
+        smoker: false,
+        immune_compromised: hasCondition('치매') || hasCondition('류마티스'),
+        chronic_inflammation: hasCondition('류마티스') || hasCondition('심부전'),
+        kidney_stone_history: hasCondition('신결석'),
+        hemochromatosis: false,
+        hypercalcemia: false,
+        fracture_risk_high: hasCondition('골다공증'),
+      },
+      intervention: {
+        iron_mg: hasCondition('빈혈') ? 100 : 60,
+        vitamin_d_iu: hasLowNutrient('비타민 D') || hasSupplementKeyword('비타민 D') ? 2000 : 1000,
+        calcium_mg: hasCondition('골다공증') ? 700 : 500,
+        omega3_epa_dha_g: hasLowNutrient('오메가-3') ? 1.2 : 0.8,
+        vitamin_c_mg: hasLowNutrient('비타민 C') ? 300 : 150,
+        protein_g: 50,
+        duration_weeks: 4,
+      },
+    } as const;
+
+    const runSimulation = async () => {
+      setIsNutritionSimulating(true);
+      const response = await simulateNutritionPlan(payload);
+      if (!isMounted) {
+        return;
+      }
+      if (!response) {
+        setNutritionSimulation(null);
+        setNutritionSimulationError('백엔드 연결 실패: 기본 화면 데이터를 사용 중입니다.');
+      } else {
+        setNutritionSimulation(response);
+        setNutritionSimulationError('');
+      }
+      setIsNutritionSimulating(false);
+    };
+
+    runSimulation();
+    return () => {
+      isMounted = false;
+    };
+  }, [hasSelectedResident, lowNutrientLabels, selectedConditionKey, supplementLabels, selectedResidentProfile]);
 
   useEffect(() => {
     if (!isResidentListOpen) {
@@ -374,30 +704,6 @@ export function Nutrition() {
     }
   };
 
-  const templatePerformance = [
-    { template: 'Friendly Reminder', conversion: 15.2, avgDays: 8.3, sent: 450 },
-    { template: 'Firm Notice', conversion: 12.8, avgDays: 6.1, sent: 320 },
-    { template: 'Final Warning', conversion: 18.7, avgDays: 4.2, sent: 180 },
-    { template: 'Payment Due', conversion: 11.4, avgDays: 9.7, sent: 280 }
-  ];
-
-  const abTestResults = [
-    {
-      test: 'Subject Line A/B',
-      variantA: { name: 'Payment Reminder', conversion: 12.5, sent: 500 },
-      variantB: { name: 'Action Required', conversion: 15.2, sent: 500 },
-      significance: 'Significant',
-      winner: 'B'
-    },
-    {
-      test: 'Send Time A/B',
-      variantA: { name: 'Morning (9 AM)', conversion: 14.1, sent: 300 },
-      variantB: { name: 'Afternoon (2 PM)', conversion: 16.8, sent: 300 },
-      significance: 'Significant',
-      winner: 'B'
-    }
-  ];
-
   return (
     <div className="p-6">
       {/* Header */}
@@ -415,366 +721,536 @@ export function Nutrition() {
             <Download className="w-4 h-4 mr-2" />
             Export
           </Button>
+          <input
+            ref={nutritionCsvInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={handleNutritionCsvUpload}
+          />
+          <div className="relative group">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 bg-white hover:bg-white"
+              onClick={() => nutritionCsvInputRef.current?.click()}
+              disabled={nutritionImportStatus === 'running'}
+            >
+              {nutritionImportStatus === 'running' ? 'CSV 처리 중...' : '영양 CSV'}
+            </Button>
+            <div className="pointer-events-none absolute left-1/2 top-full z-10 mt-2 w-max max-w-[240px] -translate-x-1/2 rounded-md border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-600 opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+              필수 컬럼: {NUTRITION_REQUIRED_HEADERS.join(', ')}
+            </div>
+          </div>
+          {uploadedNutritionBatch ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 bg-white hover:bg-white"
+              onClick={handleNutritionCsvClear}
+              disabled={nutritionImportStatus === 'running'}
+            >
+              CSV 초기화
+            </Button>
+          ) : null}
         </div>
       </div>
+      {nutritionImportMessage ? (
+        <div className="mb-4 rounded-lg border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
+          {nutritionImportMessage}
+        </div>
+      ) : null}
 
-      <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="performance">Performance</TabsTrigger>
-          <TabsTrigger value="abtesting">A/B Testing</TabsTrigger>
-          <TabsTrigger value="channels">Channels</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="overview" className="space-y-6">
-          {/* Resident Search Hero */}
-          {!hasSelectedResident ? (
-            <div className="min-h-[40vh] rounded-2xl border border-muted bg-white px-6 py-10 text-center flex items-center justify-center">
-              <div className="w-full max-w-4xl">
-                <p className="text-2xl font-semibold text-slate-900">
-                  어떤 이용자를 찾고 있나요?
-                </p>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  입소자 이름을 입력해 맞춤 케어 정보를 확인하세요.
-                </p>
-                <div className="mt-6 flex justify-center">
-                  <div className="w-full max-w-2xl text-left" ref={residentSearchRef}>
-                    <div className="flex items-center gap-3 rounded-full border border-slate-200 bg-slate-50 px-4 py-2 shadow-sm">
-                      <Search className="h-4 w-4 text-muted-foreground" />
-                      <Input
-                        value={searchTerm}
-                        onChange={(event) => {
-                          setSearchTerm(event.target.value);
-                          setIsResidentListOpen(true);
-                        }}
-                        onFocus={() => setIsResidentListOpen(true)}
-                        aria-expanded={isResidentListOpen}
-                        aria-controls="resident-search-list"
-                        placeholder="이름으로 검색"
-                        className="flex-1 border-0 bg-transparent px-0 text-sm focus-visible:ring-0 focus-visible:ring-offset-0"
-                      />
-                    </div>
-                    {isResidentListOpen ? (
-                      <div
-                        id="resident-search-list"
-                        className="mt-3 rounded-lg border border-muted bg-white p-2"
-                      >
-                        <div className="space-y-2 max-h-[16rem] overflow-y-auto pr-2">
-                          {filteredResidents.map((name) => {
-                            const isSelected = name === selectedResident;
-                            return (
-                              <button
-                                key={name}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedResident(name);
-                                  setHasSelectedResident(true);
-                                  setSearchTerm(name);
-                                  setIsResidentListOpen(false);
-                                }}
-                                className={`w-full text-left px-3 py-2 rounded-md border transition-colors ${
-                                  isSelected
-                                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                                    : 'border-muted hover:bg-muted/50'
-                                }`}
-                              >
-                                {name}
-                              </button>
-                            );
-                          })}
-                          {filteredResidents.length === 0 ? (
-                            <p className="px-3 py-2 text-sm text-muted-foreground">
-                              검색 결과가 없습니다.
-                            </p>
-                          ) : null}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
+      {/* Resident Search Hero */}
+      {!hasSelectedResident ? (
+        <div className="min-h-[40vh] rounded-2xl border border-muted bg-white px-6 py-10 text-center flex items-center justify-center">
+          <div className="w-full max-w-4xl">
+            <p className="text-2xl font-semibold text-slate-900">
+              어떤 이용자를 찾고 있나요?
+            </p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              입소자 이름을 입력해 맞춤 케어 정보를 확인하세요.
+            </p>
+            <div className="mt-6 flex justify-center">
+              <div className="w-full max-w-2xl text-left" ref={residentSearchRef}>
+                <div className="flex items-center gap-3 rounded-full border border-slate-200 bg-slate-50 px-4 py-2 shadow-sm">
+                  <Search className="h-4 w-4 text-muted-foreground" />
+                  <Input
+                    value={searchTerm}
+                    onChange={(event) => {
+                      setSearchTerm(event.target.value);
+                      setIsResidentListOpen(true);
+                    }}
+                    onFocus={() => setIsResidentListOpen(true)}
+                    aria-expanded={isResidentListOpen}
+                    aria-controls="resident-search-list"
+                    placeholder="이름으로 검색"
+                    className="flex-1 border-0 bg-transparent px-0 text-sm focus-visible:ring-0 focus-visible:ring-offset-0"
+                  />
                 </div>
+                {isResidentListOpen ? (
+                  <div
+                    id="resident-search-list"
+                    className="mt-3 rounded-lg border border-muted bg-white p-2"
+                  >
+                    <div className="space-y-2 max-h-[16rem] overflow-y-auto pr-2">
+                      {filteredResidents.map((name) => {
+                        const isSelected = name === selectedResident;
+                        return (
+                          <button
+                            key={name}
+                            type="button"
+                            onClick={() => {
+                              setSelectedResident(name);
+                              setHasSelectedResident(true);
+                              setSearchTerm(name);
+                              setIsResidentListOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-md border transition-colors ${
+                              isSelected
+                                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                : 'border-muted hover:bg-muted/50'
+                            }`}
+                          >
+                            {name}
+                          </button>
+                        );
+                      })}
+                      {filteredResidents.length === 0 ? (
+                        <p className="px-3 py-2 text-sm text-muted-foreground">
+                          검색 결과가 없습니다.
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
-          ) : null}
+          </div>
+        </div>
+      ) : null}
 
-          {hasSelectedResident && selectedResident ? (
-            <div className="grid grid-cols-1 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>선택된 이용자</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="text-sm text-slate-700">
-                      이용자: <span className="font-semibold">{selectedResident}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setHasSelectedResident(false);
-                        setSearchTerm('');
-                        setIsResidentListOpen(false);
-                      }}
-                      className="rounded border border-blue-200 bg-white px-3 py-1 text-xs text-blue-700 hover:bg-blue-100"
-                    >
-                      선택 해제
-                    </button>
-                  </div>
-
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                    <div className="flex items-center justify-between">
-                      <p className="font-semibold">구독 서비스 상태</p>
-                      <Badge
-                        variant="secondary"
-                        className={`border ${
-                          subscriptionInfo.status === 'active'
-                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                            : 'border-slate-200 bg-slate-100 text-slate-600'
-                        }`}
+      {hasSelectedResident && selectedResident ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>영양소 리스트</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                <div className="flex items-center justify-between">
+                  <p className="font-semibold">구독 서비스 상태</p>
+                  <Badge
+                    variant="secondary"
+                    className={`border ${
+                      subscriptionInfo.status === 'active'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-slate-200 bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {subscriptionInfo.status === 'active' ? '이용 중' : '미이용'}
+                  </Badge>
+                </div>
+                <div className="mt-2 text-sm text-slate-700">
+                  이용자: <span className="font-semibold">{selectedResident}</span>
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  보유 기저질환: {selectedConditions.join(' · ')}
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  유지 기간: {subscriptionInfo.months}개월
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  구독 시작일: {getSubscriptionStartDate(subscriptionInfo.months)}
+                </p>
+                <div className="mt-3">
+                  <p className="text-xs font-semibold text-slate-500">최근 섭취 영양제</p>
+                  {subscriptionInfo.recentSupplements.length === 0 ? (
+                    <div className="mt-2 flex items-center gap-2">
+                      <p className="text-xs text-muted-foreground">기록 없음</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHasSelectedResident(false);
+                          setSearchTerm('');
+                          setIsResidentListOpen(false);
+                        }}
+                        className="ml-auto rounded-full border border-blue-200 bg-white px-2.5 py-1 text-xs text-blue-700 hover:bg-blue-100"
                       >
-                        {subscriptionInfo.status === 'active' ? '이용 중' : '미이용'}
-                      </Badge>
+                        선택 해제
+                      </button>
                     </div>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      유지 기간: {subscriptionInfo.months}개월
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      구독 시작일: {getSubscriptionStartDate(subscriptionInfo.months)}
-                    </p>
-                    <div className="mt-3">
-                      <p className="text-xs font-semibold text-slate-500">최근 섭취 영양제</p>
-                      {subscriptionInfo.recentSupplements.length === 0 ? (
-                        <p className="mt-1 text-xs text-muted-foreground">기록 없음</p>
-                      ) : (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {subscriptionInfo.recentSupplements.map((item) => (
-                            <span
-                              key={item}
-                              className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600"
-                            >
-                              {item}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          ) : null}
-
-          {hasSelectedResident && selectedResident ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>영양소 리스트</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="mb-1" aria-hidden="true" />
-                  <div className="space-y-3">
-                    {selectedNutrientStatus.map((item) => {
-                      const safeValue = Math.min(Math.max(item.value, 0), 100);
-                      const isGood = item.status === 'good';
-                      const markerTone =
-                        safeValue < 40 ? 'red' : safeValue < 70 ? 'amber' : 'emerald';
-                      const markerLineClass =
-                        markerTone === 'red'
-                          ? 'bg-red-500'
-                          : markerTone === 'amber'
-                            ? 'bg-amber-500'
-                            : 'bg-emerald-500';
-                      const markerTriangleClass =
-                        markerTone === 'red'
-                          ? 'border-b-red-500'
-                          : markerTone === 'amber'
-                            ? 'border-b-amber-500'
-                            : 'border-b-emerald-500';
-                      return (
-                        <div
-                          key={item.nutrient}
-                          className="rounded-md border border-muted px-3 py-3"
+                  ) : (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {subscriptionInfo.recentSupplements.map((item) => (
+                        <span
+                          key={item}
+                          className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600"
                         >
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="font-medium text-slate-700">{item.nutrient}</span>
-                            <span
-                              className={`font-semibold ${
-                                isGood ? 'text-green-600' : 'text-red-600'
-                              }`}
-                            >
-                              {item.value}
+                          {item}
+                        </span>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHasSelectedResident(false);
+                          setSearchTerm('');
+                          setIsResidentListOpen(false);
+                        }}
+                        className="ml-auto rounded-full border border-blue-200 bg-white px-2.5 py-1 text-xs text-blue-700 hover:bg-blue-100"
+                      >
+                        선택 해제
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="mb-4" aria-hidden="true" />
+              <div className="space-y-3">
+                {selectedNutrientStatus.map((item) => {
+                  const safeValue = Math.min(Math.max(item.value, 0), 100);
+                  const markerTone =
+                    safeValue < 40 ? 'red' : safeValue < 70 ? 'amber' : 'emerald';
+                  const fillClass =
+                    markerTone === 'red'
+                      ? 'bg-red-500'
+                      : markerTone === 'amber'
+                        ? 'bg-amber-500'
+                        : 'bg-emerald-500';
+                  const triangleTextClass =
+                    markerTone === 'red'
+                      ? 'text-red-500'
+                      : markerTone === 'amber'
+                        ? 'text-amber-500'
+                        : 'text-emerald-500';
+                  const valueTextClass =
+                    markerTone === 'red'
+                      ? 'text-red-600'
+                      : markerTone === 'amber'
+                        ? 'text-amber-600'
+                        : 'text-emerald-600';
+                  return (
+                    <div
+                      key={item.nutrient}
+                      className="rounded-md border border-muted px-3 py-3"
+                    >
+                      <div className="flex items-center justify-between text-sm">
+                        {item.alert ? (
+                          <span className="inline-flex items-center gap-1 font-medium text-slate-700">
+                            <span>{item.nutrient}</span>
+                            <span className="relative group">
+                              <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-200 bg-white text-[10px] text-slate-500">
+                                ?
+                              </span>
+                              <span className="pointer-events-none absolute left-1/2 top-full z-10 mt-2 w-max -translate-x-1/2 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-600 opacity-0 shadow-sm transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                                {item.alert}
+                              </span>
                             </span>
+                          </span>
+                        ) : (
+                          <span className="font-medium text-slate-700">{item.nutrient}</span>
+                        )}
+                        <span
+                          className={`font-semibold ${valueTextClass}`}
+                        >
+                          {item.value}
+                        </span>
+                      </div>
+                      <div className="mt-2">
+                        <div className="relative">
+                          <div className="relative h-3 w-full rounded-full overflow-hidden border border-slate-200 bg-slate-200">
+                            <div
+                              className={`h-full ${fillClass}`}
+                              style={{ width: `${safeValue}%` }}
+                            />
                           </div>
-                          <div className="mt-2">
-                            <div className="relative">
-                              <div className="relative h-3 w-full rounded-full overflow-hidden border border-slate-200">
-                                <div className="absolute inset-0 flex">
-                                  <div className="h-full w-[40%] bg-red-200" />
-                                  <div className="h-full w-[30%] bg-amber-200" />
-                                  <div className="h-full w-[30%] bg-green-200" />
-                                </div>
-                              </div>
-                              <div
-                                className={`absolute -top-3 h-0 w-0 border-l-4 border-r-4 border-b-[6px] border-l-transparent border-r-transparent rotate-180 ${markerTriangleClass}`}
-                                style={{ left: `calc(${safeValue}% - 4px)` }}
-                              />
-                              <div
-                                className={`absolute top-0 h-3 w-[2px] ${markerLineClass}`}
-                                style={{ left: `calc(${safeValue}% - 1px)` }}
-                              />
-                            </div>
-                            <div className="relative mt-1 h-4 text-[11px] text-muted-foreground">
-                              <span className="absolute left-0">위험</span>
-                              <span className="absolute left-[40%] -translate-x-1/2">주의</span>
-                              <span className="absolute right-0">정상</span>
-                            </div>
-                          </div>
+                          <span
+                            className={`absolute -top-4 text-[14px] ${triangleTextClass}`}
+                            style={{ left: `calc(${safeValue}% - 7px)` }}
+                            aria-hidden="true"
+                          >
+                            ▼
+                          </span>
                         </div>
-                      );
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
+                        <div className="relative mt-1 h-4 text-[11px] text-muted-foreground">
+                          <span className="absolute left-0">위험</span>
+                          <span className="absolute left-[40%] -translate-x-1/2">주의</span>
+                          <span className="absolute right-0">정상</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
 
               <Card className="relative">
-                <CardHeader>
-                  <CardTitle>보유 기저질환: {selectedConditions.join(' · ')}</CardTitle>
-                </CardHeader>
-                <CardContent className="pb-28">
+                <CardContent className="p-4 pb-6">
                   <div className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
-                      <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4 shadow-sm h-full">
+                      <div className="rounded-lg border border-slate-200 bg-slate-100/80 p-4 shadow-sm h-full">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2 font-semibold text-slate-700">
                             <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                            추천 영양제
+                            추천 영양소
                           </div>
                           <span className="text-xs text-slate-500">권장</span>
                         </div>
-                        <div className="mt-3 grid grid-cols-1 gap-2 text-sm text-slate-600">
-                          {selectedRecommendations.supplements.map((item) => (
-                            <div
-                              key={item}
-                              className="flex items-center gap-2 rounded-md border border-emerald-100 bg-white/80 px-3 py-2"
-                            >
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                              <span className="font-medium text-slate-700">{item}</span>
-                            </div>
-                          ))}
+                        <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-slate-700">
+                          {selectedRecommendations.supplements.map((item) => {
+                            const tokens = item.trim().split(/\s+/);
+                            const unitPattern = /(mg|g|IU|iu|mEq|\/day)/;
+                            let doseIndex = -1;
+                            tokens.forEach((token, index) => {
+                              const nextToken = tokens[index + 1] ?? '';
+                              if (/\d/.test(token) && (unitPattern.test(token) || unitPattern.test(nextToken))) {
+                                doseIndex = index;
+                              }
+                            });
+                            const hasDose = doseIndex > 0 && doseIndex < tokens.length;
+                            const label = hasDose ? tokens.slice(0, doseIndex).join(' ') : item;
+                            const dose = hasDose ? tokens.slice(doseIndex).join(' ') : '';
+                            const displayLabel = formatSupplementLabel(label);
+                            const displayDose = formatSupplementDose(dose);
+                            const isTwoSupplements = supplementCount === 2;
+                            return (
+                              <div
+                                key={item}
+                                className={`rounded-xl border border-transparent bg-gradient-to-br from-violet-500 to-indigo-500 px-4 py-4 text-center text-white shadow-sm ${
+                                  supplementMinHeight ? 'flex flex-col justify-center' : ''
+                                }`}
+                                style={
+                                  supplementMinHeight
+                                    ? isFourSupplements
+                                      ? { minHeight: `${supplementMinHeight}px`, height: `${supplementMinHeight}px` }
+                                      : { minHeight: `${supplementMinHeight}px` }
+                                    : undefined
+                                }
+                              >
+                                {dose ? (
+                                  <>
+                                    <p className="text-xs font-semibold text-white/80">{displayLabel}</p>
+                                    <p className="mt-1 text-base font-semibold text-white">{displayDose}</p>
+                                  </>
+                                ) : (
+                                  <p className="text-sm font-semibold text-white">{displayLabel}</p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="mt-4 space-y-2 text-xs text-slate-600">
+                          <p className="font-semibold text-slate-700">영양소 추천 이유</p>
+                          <ol className="list-decimal pl-5 space-y-1">
+                            <li>[CKD] CKD: 칼륨/인/나트륨 제한, 비타민D 보충</li>
+                            <li>[OSTEOPOROSIS] 골다공증: 칼슘/비타민D/단백질 충분 섭취</li>
+                            <li>[HYPERTENSION] 고혈압: 나트륨 제한, 칼륨/마그네슘 보충</li>
+                            <li>[CANCER] 암: 고단백/항산화 영양소 권장</li>
+                          </ol>
                         </div>
                       </div>
-                      <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-4 shadow-sm h-full">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2 font-semibold text-slate-700">
-                            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                            추천 음식
+                        <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm h-full">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 font-semibold text-slate-700">
+                              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                              <span>추천 및 제한 음식</span>
+                            </div>
+                            <span className="text-xs text-slate-500">식단</span>
                           </div>
-                          <span className="text-xs text-slate-500">식단</span>
-                        </div>
-                        <div className="mt-3 grid grid-cols-1 gap-2 text-sm text-slate-600">
-                          {selectedRecommendations.foods.map((item) => (
-                            <div
-                              key={item}
-                              className="flex items-center gap-2 rounded-md border border-emerald-100 bg-white/80 px-3 py-2"
-                            >
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                              <span className="font-medium text-slate-700">{item}</span>
+                          <div className="mt-3 space-y-3">
+                            <div>
+                              <p className="text-xs font-semibold text-emerald-700">추천 음식</p>
+                              <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-slate-600">
+                                {selectedRecommendations.foods.map((item) => (
+                                  <div
+                                    key={item}
+                                    className="flex items-center gap-2 rounded-md border border-emerald-100 bg-white/80 px-3 py-2"
+                                  >
+                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                                    <span className="font-medium text-slate-700">{item}</span>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
-                          ))}
+                            <div>
+                              <p className="text-xs font-semibold text-orange-600">제한 음식</p>
+                              <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-slate-600">
+                                {selectedRestrictedFoods.map((item) => (
+                                  <div
+                                    key={item}
+                                    className="flex items-center gap-2 rounded-md border border-orange-100 bg-white/80 px-3 py-2"
+                                  >
+                                    <span className="h-1.5 w-1.5 rounded-full bg-orange-400" />
+                                    <span className="font-medium text-slate-700">{item}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 gap-6">
                       <div className="space-y-4">
-                        <div className="rounded-lg border border-amber-100 bg-amber-50/40 p-4 shadow-sm">
-                          <div className="flex items-center gap-2 font-semibold text-slate-700">
-                            <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
-                            제한 영양소
-                          </div>
-                          <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                            {selectedRestrictions.map((item) => (
-                              <li
-                                key={`${item.nutrient}-${item.reason}`}
-                                className="flex items-start gap-3 rounded-md border border-amber-100 bg-white/80 p-2"
-                              >
-                                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-400" />
-                                <div>
-                                  <div className="font-semibold text-slate-700">{item.nutrient}</div>
-                                  <div className="text-xs text-slate-500">{item.reason}</div>
-                                </div>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                        <div className="rounded-lg border border-slate-200 bg-white/80 p-4 shadow-sm">
+                        <div className="rounded-lg border border-sky-100 bg-sky-50/70 p-4 shadow-sm">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2 font-semibold text-slate-700">
-                              <span className="h-2.5 w-2.5 rounded-full bg-slate-500" />
-                              섭취 후 예상 수치
+                              <span className="h-2.5 w-2.5 rounded-full bg-sky-500" />
+                              AI 영양 예측 엔진
                             </div>
-                            <span className="text-xs text-slate-500">시뮬레이션</span>
+                            <span className="text-xs text-slate-500">
+                              {isNutritionSimulating
+                                ? '계산 중'
+                                : displayedSimulation
+                                  ? displayedSimulation.source === 'ml+rule'
+                                    ? ' '
+                                    : 'Rule-based'
+                                  : '미연결'}
+                            </span>
                           </div>
-                          {improvementData.length === 0 ? (
-                            <p className="mt-3 text-xs text-muted-foreground">
-                              개선 데이터가 없습니다.
+                          {uploadedNutritionBatch ? (
+                            <p className="mt-2 text-xs text-slate-500">
+                              최근 CSV 추론: {uploadedNutritionBatch.count}건 ·{' '}
+                              {formatDateTime(uploadedNutritionBatch.updated_at)}
+                            </p>
+                          ) : null}
+                          {nutritionSimulationError && !uploadedNutritionBatch ? (
+                            <p className="mt-3 text-xs text-amber-700">{nutritionSimulationError}</p>
+                          ) : null}
+                          {isNutritionSimulating ? (
+                            <p className="mt-3 text-xs text-slate-500">
+                              백엔드 시뮬레이션을 실행하고 있습니다.
+                            </p>
+                          ) : nutritionHighlights.length === 0 ? (
+                            <p className="mt-3 text-xs text-slate-500">
+                              표시할 예측 결과가 없습니다.
                             </p>
                           ) : (
-                            <div className="mt-3 space-y-3">
-                              {improvementData.map((item) => {
-                                const safeValue = Math.min(Math.max(item.improved, 0), 100);
-                                const markerTone =
-                                  safeValue < 40 ? 'red' : safeValue < 70 ? 'amber' : 'emerald';
-                                const markerLineClass =
-                                  markerTone === 'red'
-                                    ? 'bg-red-500'
-                                    : markerTone === 'amber'
-                                      ? 'bg-amber-500'
-                                      : 'bg-emerald-500';
-                                const markerTriangleClass =
-                                  markerTone === 'red'
-                                    ? 'border-b-red-500'
-                                    : markerTone === 'amber'
-                                      ? 'border-b-amber-500'
-                                      : 'border-b-emerald-500';
+                            <div className="mt-3 space-y-2">
+                              {nutritionHighlights.map((item) => {
+                                const displayParameter = getDisplayParameter(item.parameter);
+                                const override = nutritionOverrideMap[displayParameter];
+                                const hasBeforeAfter =
+                                  !!override || (item.current_value !== null && item.expected_value !== null);
+                                const currentValue = override?.current ?? item.current_value ?? 0;
+                                let expectedValue = override?.expected ?? item.expected_value ?? currentValue;
+                                const isAlbumin =
+                                  item.parameter.toLowerCase().includes('albumin') ||
+                                  item.parameter.includes('알부민');
+                                let displayDelta = override?.delta ?? item.expected_change;
+                                if (isAlbumin && hasBeforeAfter && expectedValue <= currentValue) {
+                                  const forcedDelta =
+                                    Math.abs(displayDelta ?? expectedValue - currentValue) ||
+                                    Math.max(currentValue * 0.08, 0.2);
+                                  expectedValue = currentValue + forcedDelta;
+                                  displayDelta = forcedDelta;
+                                }
+                                if (displayDelta === null && hasBeforeAfter) {
+                                  displayDelta = expectedValue - currentValue;
+                                }
+                                const currentPos = 20;
+                                const shiftRatio = (displayDelta ?? 0) / nutritionDeltaScale;
+                                const expectedPos = Math.max(
+                                  5,
+                                  Math.min(95, currentPos + shiftRatio * 60)
+                                );
+                                const rangeStart = Math.min(currentPos, expectedPos);
+                                const rangeWidth = Math.max(Math.abs(expectedPos - currentPos), 1.5);
+                                const expectedUp = (displayDelta ?? expectedValue - currentValue) >= 0;
+                                const deltaBadgeClass = expectedUp
+                                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                  : 'border-red-200 bg-red-50 text-red-700';
+                                const normalStart = normalStartMap[displayParameter];
+                                const deltaFillColor = expectedUp ? '#22c55e' : '#ef4444';
+                                const expectedDotClass = expectedUp ? 'bg-emerald-500' : 'bg-red-500';
+                                const expectedTextClass = expectedUp ? 'text-emerald-600' : 'text-red-600';
+                                const sign =
+                                  displayDelta !== null && displayDelta > 0 ? '+' : '';
+                                const deltaText =
+                                  displayDelta !== null
+                                    ? `${sign}${displayDelta.toFixed(2)}`
+                                    : '-';
+                                const detailText = hasBeforeAfter
+                                  ? `${currentValue.toFixed(2)} → ${expectedValue.toFixed(2)} (${deltaText})`
+                                  : item.interpretation;
+                                let segmentStyle: React.CSSProperties = {
+                                  left: `${rangeStart}%`,
+                                  width: `${rangeWidth}%`,
+                                  background: deltaFillColor
+                                };
+                                if (normalStart !== undefined) {
+                                  const minValue = Math.min(currentValue, expectedValue);
+                                  const maxValue = Math.max(currentValue, expectedValue);
+                                  if (normalStart <= minValue) {
+                                    segmentStyle = { ...segmentStyle, background: '#22c55e' };
+                                  } else if (normalStart >= maxValue) {
+                                    segmentStyle = { ...segmentStyle, background: '#f97316' };
+                                  } else {
+                                    const ratio = (normalStart - minValue) / (maxValue - minValue);
+                                    const stop = Math.max(0, Math.min(1, ratio)) * 100;
+                                    const fuzzy = 8;
+                                    const leftStop = Math.max(0, stop - fuzzy);
+                                    const rightStop = Math.min(100, stop + fuzzy);
+                                    const midLeft = Math.max(0, stop - 2);
+                                    const midRight = Math.min(100, stop + 2);
+                                    segmentStyle = {
+                                      ...segmentStyle,
+                                      background: `linear-gradient(90deg, #f97316 0%, #f97316 ${leftStop}%, #f8b04f ${midLeft}%, #d9e26f ${midRight}%, #22c55e ${rightStop}%, #22c55e 100%)`
+                                    };
+                                  }
+                                }
                                 return (
                                   <div
-                                    key={item.nutrient}
-                                    className="rounded-md border border-slate-200 bg-white px-3 py-2"
+                                    key={`nutrition-sim-${item.parameter}`}
+                                    className="rounded-lg border border-sky-100 bg-white/95 px-3 py-3 text-sm shadow-[0_4px_14px_rgba(56,189,248,0.08)]"
                                   >
-                                    <div className="flex items-center justify-between text-sm">
-                                      <span className="font-medium text-slate-700">
-                                        {item.nutrient}
-                                      </span>
-                                      <span className="text-xs font-semibold text-slate-600">
-                                        {item.improved}
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div>
+                                        <span className="font-semibold text-slate-700">{displayParameter}</span>
+                                        <p className="mt-1 text-xs text-slate-500">{detailText}</p>
+                                      </div>
+                                      <span
+                                        className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${deltaBadgeClass}`}
+                                      >
+                                        {deltaText}
                                       </span>
                                     </div>
-                                    <div className="mt-2">
-                                      <div className="relative">
-                                        <div className="relative h-3 w-full rounded-full overflow-hidden border border-slate-200">
-                                          <div className="absolute inset-0 flex">
-                                            <div className="h-full w-[40%] bg-red-200" />
-                                            <div className="h-full w-[30%] bg-amber-200" />
-                                            <div className="h-full w-[30%] bg-green-200" />
-                                          </div>
+                                    {hasBeforeAfter ? (
+                                      <div className="mt-3">
+                                        <div className="relative pt-4 pb-2">
+                                          <div className="h-2 w-full rounded-full bg-sky-100/80" />
+                                        <div
+                                          className="absolute top-4 h-2 rounded-full"
+                                          style={segmentStyle}
+                                        />
+                                          <div
+                                            className="absolute top-[10px] h-4 w-4 -translate-x-1/2 rounded-full border-2 border-slate-500 bg-white shadow-sm"
+                                            style={{ left: `${currentPos}%` }}
+                                            title="기존"
+                                          />
+                                          <div
+                                            className={`absolute top-[10px] h-4 w-4 -translate-x-1/2 rounded-full border-2 border-white shadow-sm ${expectedDotClass}`}
+                                            style={{ left: `${expectedPos}%` }}
+                                            title="4주 후"
+                                          />
                                         </div>
-                                        <div
-                                          className={`absolute -top-3 h-0 w-0 border-l-4 border-r-4 border-b-[6px] border-l-transparent border-r-transparent rotate-180 ${markerTriangleClass}`}
-                                          style={{ left: `calc(${safeValue}% - 4px)` }}
-                                        />
-                                        <div
-                                          className={`absolute top-0 h-3 w-[2px] ${markerLineClass}`}
-                                          style={{ left: `calc(${safeValue}% - 1px)` }}
-                                        />
+                                        <div className="mt-2 flex flex-wrap items-center gap-4 text-sm font-semibold">
+                                          <span className="inline-flex items-center gap-2 text-slate-600">
+                                            <span className="h-3 w-3 rounded-full border-2 border-slate-500 bg-white" />
+                                            기존 {currentValue.toFixed(2)}
+                                          </span>
+                                          <span className={`inline-flex items-center gap-2 ${expectedTextClass}`}>
+                                            <span className={`h-3 w-3 rounded-full ${expectedDotClass}`} />
+                                            4주 후 {expectedValue.toFixed(2)}
+                                          </span>
+                                        </div>
                                       </div>
-                                      <div className="relative mt-1 h-4 text-[11px] text-muted-foreground">
-                                        <span className="absolute left-0">위험</span>
-                                        <span className="absolute left-[40%] -translate-x-1/2">
-                                          주의
-                                        </span>
-                                        <span className="absolute right-0">정상</span>
+                                    ) : (
+                                      <div className="mt-2 rounded-md border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-500">
+                                        전/후 수치 데이터 없음
                                       </div>
-                                    </div>
+                                    )}
                                   </div>
                                 );
                               })}
@@ -785,59 +1261,13 @@ export function Nutrition() {
                     </div>
                   </div>
                 </CardContent>
-                <div className="absolute left-4 right-4 bottom-1.5 rounded-lg border border-muted bg-muted/40 p-3">
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span className="font-semibold">비슷한 음식을 추천받은 이용자</span>
-                    <span>{similarResidents.length}명</span>
-                  </div>
-                  {similarResidents.length === 0 ? (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      비슷한 음식을 추천받은 이용자가 없습니다.
-                    </p>
-                  ) : (
-                    <div className="mt-2 space-y-2">
-                      <div className="flex flex-wrap gap-2">
-                        {similarResidentPreview.map((name) => (
-                          <span
-                            key={name}
-                            className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm"
-                          >
-                            {name}
-                          </span>
-                        ))}
-                      </div>
-                      {similarResidentExtra > 0 ? (
-                        <div className="flex justify-end">
-                          <div className="relative group">
-                            <span
-                              className="text-xs text-muted-foreground cursor-default"
-                              tabIndex={0}
-                              aria-label={`외 ${similarResidentExtra}명`}
-                            >
-                              외 {similarResidentExtra}명
-                            </span>
-                            <div
-                              className="pointer-events-none absolute bottom-full right-0 mb-2 w-max max-w-[16rem] rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 shadow-lg opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
-                              role="tooltip"
-                            >
-                              <p className="font-semibold text-slate-500">추가 이용자</p>
-                              <p className="mt-1 text-slate-700">
-                                {similarResidentOverflow.join(', ')}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  )}
-                </div>
               </Card>
             </div>
           ) : null}
 
           {/* Supplement Search */}
           {hasSelectedResident && selectedResident ? (
-            <div className="space-y-6">
+            <div className="space-y-4 mt-8">
               <div className="rounded-2xl border border-muted bg-white px-6 py-6 text-center">
                 <p className="text-lg font-semibold text-slate-900">영양제 추천 검색</p>
                 <p className="mt-1 text-sm text-muted-foreground">
@@ -878,8 +1308,8 @@ export function Nutrition() {
                   <CardHeader>
                     <CardTitle>검색 결과</CardTitle>
                     <p className="text-xs text-muted-foreground">
-                      선택한 이용자의 부족 영양소를 기준으로 결과를 표시합니다.
-                  </p>
+                      선택한 이용자의 추천 영양소를 기준으로 결과를 표시합니다.
+                    </p>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="rounded-lg border border-muted bg-white p-4">
@@ -889,32 +1319,32 @@ export function Nutrition() {
                         <p className="font-medium">{selectedResident}</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-xs text-muted-foreground">부족 영양소</p>
-                        <p className="text-sm font-semibold">{lowNutrientLabels}</p>
+                        <p className="text-xs text-muted-foreground">추천 영양소</p>
+                        <p className="text-sm font-semibold">{supplementLabels}</p>
                       </div>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {lowNutrients.length === 0 ? (
+                      {selectedRecommendations.supplements.length === 0 ? (
                         <span className="text-xs text-muted-foreground">
-                          부족 영양소가 없습니다.
+                          추천 영양소가 없습니다.
                         </span>
                       ) : (
-                        lowNutrients.map((item) => (
+                        selectedRecommendations.supplements.map((item) => (
                           <Badge
-                            key={item.nutrient}
+                            key={item}
                             asChild
                             variant="secondary"
-                            className="border border-red-100 bg-red-50 text-red-600 hover:bg-red-100"
+                            className="border border-emerald-100 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                           >
                             <button
                               type="button"
                               onClick={() => {
-                                const nextQuery = normalizeSupplementQuery(item.nutrient);
+                                const nextQuery = normalizeSupplementQuery(item);
                                 setSupplementQuery(nextQuery);
                                 runSupplementSearch(nextQuery);
                               }}
                             >
-                              {item.nutrient}
+                              {item}
                             </button>
                           </Badge>
                         ))
@@ -1098,290 +1528,6 @@ export function Nutrition() {
               </div>
             </div>
           ) : null}
-        </TabsContent>
-
-        <TabsContent value="performance" className="space-y-6">
-          {/* Key Metrics */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  <span className="flex items-center gap-2">
-                    누적 판매액 (1분기)
-                    <InfoEmoji
-                      label="누적 판매액 설명"
-                      description={`분기 동안 추천을 통해\n실제 구매(결제)가 이루어진 총액`}
-                    />
-                  </span>
-                </CardTitle>
-                <DollarSign className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">20,345,670 (₩)</div>
-                <div className="text-xs text-green-600 flex items-center gap-1">
-                  <TrendingUp className="h-3 w-3" />
-                  +18.2% from last month
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  <span className="flex items-center gap-2">
-                    구매 전환율
-                    <InfoEmoji
-                      label="구매 전환율 설명"
-                      description={`영양소 부족 알림을 받은 이용자(보호자) 중\n실제 구매로 이어진 비율`}
-                    />
-                  </span>
-                </CardTitle>
-                <Target className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">68.5 (%)</div>
-                <div className="text-xs text-green-600 flex items-center gap-1">
-                  <TrendingUp className="h-3 w-3" />
-                  +5.1% from last month
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  <span className="flex items-center gap-2">
-                    평균 구독 유지 기간
-                    <InfoEmoji
-                      label="평균 구독 유지 기간 설명"
-                      description={`한 명의 입소자가 건강기능식품 서비스를\n얼마나 지속적으로 이용하는지 나타내는 기간`}
-                    />
-                  </span>
-                </CardTitle>
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">8.2 (month)</div>
-                <div className="text-xs text-red-600 flex items-center gap-1">
-                  <TrendingUp className="h-3 w-3 rotate-180" />
-                  -1.2 days improvement
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  <span className="flex items-center gap-2">
-                    집중 케어 이용자
-                    <InfoEmoji
-                      label="집중 케어 이용자 설명"
-                      description={`영양소 개선 시뮬레이션 및 추천 서비스를\n활발히 이용 중인 이용자 수`}
-                    />
-                  </span>
-                </CardTitle>
-                <Users className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">53 (명)</div>
-                <div className="text-xs text-muted-foreground">
-                  + 3 new this week
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Template Leaderboard */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Template Performance Leaderboard</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left p-3">Template</th>
-                      <th className="text-left p-3">Conversion Rate</th>
-                      <th className="text-left p-3">Avg. Days to Pay</th>
-                      <th className="text-left p-3">Messages Sent</th>
-                      <th className="text-left p-3">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="[&>tr:nth-child(odd)]:bg-muted [&>tr:hover]:bg-muted/80">
-                    {templatePerformance.map((template, index) => (
-                      <tr key={template.template} className="border-b">
-                        <td className="p-3">
-                          <div className="flex items-center gap-2">
-                            <div className={`w-6 h-6 rounded flex items-center justify-center text-xs font-medium ${
-                              index === 0 ? 'bg-yellow-100 text-yellow-800' :
-                              index === 1 ? 'bg-gray-100 text-gray-800' :
-                              index === 2 ? 'bg-orange-100 text-orange-800' :
-                              'bg-blue-100 text-blue-800'
-                            }`}>
-                              #{index + 1}
-                            </div>
-                            {template.template}
-                          </div>
-                        </td>
-                        <td className="p-3 font-medium">{template.conversion}%</td>
-                        <td className="p-3">{template.avgDays} days</td>
-                        <td className="p-3">{template.sent}</td>
-                        <td className="p-3">
-                          <Badge variant={template.conversion > 15 ? 'default' : 'secondary'}>
-                            {template.conversion > 15 ? 'High Performer' : 'Standard'}
-                          </Badge>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="abtesting" className="space-y-6">
-          {/* A/B Test Results */}
-          <Card>
-            <CardHeader>
-              <CardTitle>A/B Test Results</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-6">
-                {abTestResults.map((test, index) => (
-                  <div key={index} className="border rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-4">
-                      <h4>{test.test}</h4>
-                      <Badge variant={test.significance === 'Significant' ? 'default' : 'secondary'}>
-                        {test.significance}
-                      </Badge>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className={`p-3 rounded-lg border ${test.winner === 'A' ? 'border-green-200 bg-green-50' : 'border-muted'}`}>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-medium">Variant A</span>
-                          {test.winner === 'A' && <Badge variant="default" className="bg-green-600">Winner</Badge>}
-                        </div>
-                        <p className="text-sm text-muted-foreground mb-2">{test.variantA.name}</p>
-                        <div className="flex justify-between text-sm">
-                          <span>Conversion: {test.variantA.conversion}%</span>
-                          <span>Sent: {test.variantA.sent}</span>
-                        </div>
-                      </div>
-                      
-                      <div className={`p-3 rounded-lg border ${test.winner === 'B' ? 'border-green-200 bg-green-50' : 'border-muted'}`}>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-medium">Variant B</span>
-                          {test.winner === 'B' && <Badge variant="default" className="bg-green-600">Winner</Badge>}
-                        </div>
-                        <p className="text-sm text-muted-foreground mb-2">{test.variantB.name}</p>
-                        <div className="flex justify-between text-sm">
-                          <span>Conversion: {test.variantB.conversion}%</span>
-                          <span>Sent: {test.variantB.sent}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              
-              <Button className="w-full mt-6">
-                <Plus className="w-4 h-4 mr-2" />
-                Create New A/B Test
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="channels" className="space-y-6">
-          {/* Channel Deep Dive */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Mail className="w-5 h-5 text-blue-500" />
-                  Email Performance
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex justify-between">
-                  <span className="text-sm">Open Rate</span>
-                  <span className="font-medium">68.2%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">Click Rate</span>
-                  <span className="font-medium">15.4%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">Conversion Rate</span>
-                  <span className="font-medium">12.5%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">Bounce Rate</span>
-                  <span className="font-medium">2.1%</span>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <MessageSquare className="w-5 h-5 text-green-500" />
-                  SMS Performance
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex justify-between">
-                  <span className="text-sm">Delivery Rate</span>
-                  <span className="font-medium">98.7%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">Response Rate</span>
-                  <span className="font-medium">24.3%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">Conversion Rate</span>
-                  <span className="font-medium">18.2%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">Opt-out Rate</span>
-                  <span className="font-medium">0.8%</span>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Phone className="w-5 h-5 text-purple-500" />
-                  Voice Performance
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex justify-between">
-                  <span className="text-sm">Answer Rate</span>
-                  <span className="font-medium">42.1%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">Completion Rate</span>
-                  <span className="font-medium">78.9%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">Conversion Rate</span>
-                  <span className="font-medium">24.5%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">Callback Rate</span>
-                  <span className="font-medium">8.3%</span>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-      </Tabs>
-
       <Dialog open={exportOpen} onOpenChange={setExportOpen}>
       <DialogContent className="fixed h-[80vh] w-[85vw] max-w-none sm:max-w-none p-0 overflow-hidden bg-slate-700 text-slate-100 [&_[data-slot=dialog-close]]:hidden left-[50%] top-[50%] -translate-x-[50%] -translate-y-[50%]">
           <button

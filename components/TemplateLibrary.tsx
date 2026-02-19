@@ -286,7 +286,7 @@ function TemplateEditor({ onClose, selectedResidentId }: TemplateEditorProps) {
       Lymphocyte: labMap.Lymphocyte ?? '-',
       CRP: labMap.CRP ?? '-',
       'Total Protein': labMap['Total Protein'] ?? '-',
-      'Facility Name': '해맑은 요양원',
+      'Facility Name': '이기조 요양원',
       'Facility Phone': '02-1234-5678'
     }),
     [selectedResident, conditionLabel, labMap]
@@ -295,10 +295,11 @@ function TemplateEditor({ onClose, selectedResidentId }: TemplateEditorProps) {
   const baseTemplate = `안녕하세요. {{Resident Name}} 보호자님,
 
 {{Facility Name}}에서 {{Resident Name}} 어르신({{Room}})의 오늘 상태를 안내드립니다.
-DIVS 점수 {{DIVS Score}}점, 위험등급 {{Risk Level}}입니다.
+
+감염 취약 점수는 {{DIVS Score}}점, 위험등급은 {{Risk Level}} 등급 입니다.
+
 체온 {{Temp}}℃, 혈압 {{BP}}mmHg, 산소포화도 {{SpO2}}%입니다.
 주요 수치: Albumin {{Albumin}}, Lymphocyte {{Lymphocyte}}, CRP {{CRP}}.
-기저질환: {{Conditions}}.
 
 필요 시 담당 간호사에게 연락 부탁드립니다.
 
@@ -352,64 +353,66 @@ DIVS 점수 {{DIVS Score}}점, 위험등급 {{Risk Level}}입니다.
           <p className="text-muted-foreground">Create and customize your collection message templates</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button>Save Template</Button>
+          <Button variant="outline" onClick={onClose}>취소</Button>
+          <Button>연락 보내기</Button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6">
         {/* Main Editor */}
         <div className="space-y-6">
-          {/* Insert Tokens */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Insert Tokens</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-4 gap-2">
-                {tokens.map((token) => (
-                  <Button
-                    key={token.token}
-                    variant="ghost"
-                    size="sm"
-                    className="justify-start h-auto p-2"
-                    onClick={() => setTemplateContent((prev) => prev + token.token)}
-                  >
-                    <div className="flex flex-col items-start gap-1">
-                      <span className="text-xs font-semibold text-slate-700">{token.label}</span>
-                      <span className="text-[11px] text-slate-500">{token.value}</span>
-                      <span className="text-[10px] font-mono text-slate-400">{token.token}</span>
-                    </div>
-                  </Button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Channel Selector */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Channel</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex gap-2">
-                {channels.map((channel) => {
-                  const Icon = channel.icon;
-                  return (
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-3 items-start">
+            {/* Insert Tokens */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Insert Tokens</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-1">
+                  {tokens.map((token) => (
                     <Button
-                      key={channel.id}
-                      variant={selectedChannel === channel.id ? 'default' : 'outline'}
-                      onClick={() => setSelectedChannel(channel.id)}
-                      className="flex-1"
+                      key={token.token}
+                      variant="ghost"
+                      size="sm"
+                      className="justify-start h-auto px-2.5 py-2.5"
+                      onClick={() => setTemplateContent((prev) => prev + token.token)}
                     >
-                      <Icon className="w-4 h-4 mr-2" />
-                      {channel.name}
+                      <div className="flex flex-col items-start gap-0.5">
+                        <span className="text-base font-semibold text-slate-700">{token.label}</span>
+                        <span className="text-base text-slate-650">{token.value}</span>
+                        <span className="text-xs font-mono text-slate-400">{token.token}</span>
+                      </div>
                     </Button>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Channel Selector */}
+            <Card className="h-full">
+              <CardHeader>
+                <CardTitle>Channel</CardTitle>
+              </CardHeader>
+              <CardContent className="h-full">
+                <div className="grid h-full gap-2">
+                  {channels.map((channel) => {
+                    const Icon = channel.icon;
+                    return (
+                      <Button
+                        key={channel.id}
+                        variant={selectedChannel === channel.id ? 'default' : 'outline'}
+                        onClick={() => setSelectedChannel(channel.id)}
+                        className="w-full justify-start py-11 text-base"
+                      >
+                        <Icon className="w-5 h-5 mr-2" />
+                        {channel.name}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
             {/* Content Editor */}
@@ -417,11 +420,11 @@ DIVS 점수 {{DIVS Score}}점, 위험등급 {{Risk Level}}입니다.
               <CardHeader>
                 <CardTitle>Message Content</CardTitle>
               </CardHeader>
-              <CardContent className="h-full">
+              <CardContent className="h-full min-h-[28rem]">
                 {selectedChannel === 'voice' ? (
                   <div className="flex h-full flex-col gap-4">
                     <textarea
-                      className="w-full flex-1 min-h-[18rem] p-3 border rounded-md resize-none"
+                      className="w-full flex-1 min-h-[22rem] p-3 border rounded-md resize-none"
                       placeholder="Enter your voice script here. Use {{tokens}} for personalization."
                       value={templateContent}
                       onChange={(e) => setTemplateContent(e.target.value)}
@@ -439,7 +442,7 @@ DIVS 점수 {{DIVS Score}}점, 위험등급 {{Risk Level}}입니다.
                     <div className="space-y-2">
                       <label className="text-sm font-medium">Message Body</label>
                       <textarea
-                        className="w-full flex-1 min-h-[18rem] p-3 border rounded-md resize-none"
+                        className="w-full flex-1 min-h-[22rem] p-3 border rounded-md resize-none"
                         placeholder="Enter your message here. Use {{tokens}} for personalization."
                         value={templateContent}
                         onChange={(e) => setTemplateContent(e.target.value)}
@@ -455,7 +458,7 @@ DIVS 점수 {{DIVS Score}}점, 위험등급 {{Risk Level}}입니다.
               <CardHeader>
                 <CardTitle>Preview</CardTitle>
               </CardHeader>
-              <CardContent className="h-full">
+              <CardContent className="h-full min-h-[28rem]">
                 <div className="h-full rounded-lg bg-muted/50 p-4">
                   <div className="whitespace-pre-wrap text-sm">
                     {templateContent.replace(/\{\{([^}]+)\}\}/g, (match, token) => {

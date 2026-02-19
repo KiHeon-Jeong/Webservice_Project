@@ -23,11 +23,11 @@ export type ResidentDetail = {
 export const residents: Resident[] = [
   { id: 'r-101', name: '김영희', room: '201호', age: 87, gender: '여', risk: 'critical', score: 18.2 },
   { id: 'r-102', name: '박철수', room: '201호', age: 82, gender: '남', risk: 'critical', score: 24.5 },
-  { id: 'r-105', name: '이순자', room: '201호', age: 91, gender: '여', risk: 'critical', score: 27.3 },
+  { id: 'r-105', name: '윤미경', room: '203호', age: 92, gender: '여', risk: 'high', score: 48.9 },
   { id: 'r-103', name: '정민호', room: '201호', age: 79, gender: '남', risk: 'high', score: 38.7 },
   { id: 'r-104', name: '최영자', room: '202호', age: 84, gender: '여', risk: 'high', score: 42.1 },
   { id: 'r-106', name: '한상철', room: '202호', age: 76, gender: '남', risk: 'moderate', score: 55.8 },
-  { id: 'r-107', name: '윤미경', room: '203호', age: 81, gender: '여', risk: 'moderate', score: 61.2 },
+  { id: 'r-107', name: '이순자', room: '201호', age: 91, gender: '여', risk: 'critical', score: 27.3  },
   { id: 'r-108', name: '강태영', room: '204호', age: 74, gender: '남', risk: 'low', score: 78.4 },
   { id: 'r-109', name: '서정희', room: '205호', age: 72, gender: '여', risk: 'low', score: 82.6 },
   { id: 'r-110', name: '이수현', room: '205호', age: 80, gender: '여', risk: 'moderate', score: 58.9 },
@@ -47,19 +47,38 @@ export const residentDetails: Record<string, ResidentDetail> = {
   'r-101': {
     conditions: ['치매', '심부전', '당뇨'],
     meds: [],
-    baseImmunity: 53,
+    baseImmunity: 69,
     envMultiplier: 3.28,
     personalAdjust: -18,
     labs: [
-      { name: 'Albumin', value: '2.9', ref: '정상: 3.5-5.0', status: 'abnormal' },
-      { name: 'Lymphocyte', value: '1,100', ref: '정상: 1,500+', status: 'abnormal' },
-      { name: 'CRP', value: '8.5', ref: '정상: <5.0', status: 'abnormal' },
-      { name: 'Total Protein', value: '6.2', ref: '정상: 6.0-8.0', status: 'borderline' }
+      { name: 'Albumin', value: '3.03', status: 'abnormal'},
+      { name: 'Lymphocyte', value: '17.58',  status: 'abnormal'},
+      { name: 'CRP', value: '6.5', status: 'abnormal'},
+      { name: 'Total Protein', value: '104.7', status:'borderline'}
     ],
     actions: [
-      { level: 'urgent', title: '독감 예방접종 즉시 실시', desc: '미접종 상태 · 보건소 연계 필요' },
-      { level: 'urgent', title: '격리실 배정 고려', desc: '다인실 감염 전파 위험 높음' },
-      { level: 'warning', title: '단백질 보충 강화', desc: 'Albumin 수치 개선 필요 (20g/일)' },
+      { level: 'warning', title: '창가 외풍 차단 상태 점검', desc: '실내 온도 20-24도 유지' },
+      { level: 'warning', title: '가습기 가동 및 물 보충 여부 확인', desc: '실내 습도 40-60% 유지' },
+      { level: 'urgent', title: ' 커튼(물리적 차단막) 활용 및 격리실 배정 고려', desc: '감염병 발생 시 감염 취약군 관리' },
+      { level: 'info', title: '매일 2회 체온 측정', desc: '37.5°C 이상 시 즉시 보고' }
+    ]
+  },
+  'r-105': {
+    conditions: ['뇌혈관질환 후유증'],
+    meds: [],
+    baseImmunity: 69,
+    envMultiplier: 3.28,
+    personalAdjust: -18,
+    labs: [
+      { name: 'Albumin', value: '3.03', status: 'abnormal'},
+      { name: 'Lymphocyte', value: '17.58',  status: 'abnormal'},
+      { name: 'CRP', value: '6.5', status: 'abnormal'},
+      { name: 'Total Protein', value: '104.7', status:'borderline'}
+    ],
+    actions: [
+      { level: 'warning', title: '창가 외풍 차단 상태 점검', desc: '실내 온도 20-24도 유지' },
+      { level: 'warning', title: '가습기 가동 및 물 보충 여부 확인', desc: '실내 습도 40-60% 유지' },
+      { level: 'urgent', title: ' 커튼(물리적 차단막) 활용 및 격리실 배정 고려', desc: '감염병 발생 시 감염 취약군 관리' },
       { level: 'info', title: '매일 2회 체온 측정', desc: '37.5°C 이상 시 즉시 보고' }
     ]
   }

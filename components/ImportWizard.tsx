@@ -13,6 +13,17 @@ import {
   Users
 } from 'lucide-react';
 import { residents, residentDetails, type RiskLevel } from './data/immuneResidents';
+import {
+  IMMUNE_REQUIRED_HEADERS,
+  runImmuneCsvInference
+} from './modeling/csvInference';
+import {
+  IMMUNE_BATCH_STORAGE_KEY,
+  formatDateTime,
+  type StoredImmuneBatch
+} from './modeling/storage';
+
+const IMMUNE_CSV_HELP = `필수 컬럼: ${IMMUNE_REQUIRED_HEADERS.join(', ')}`;
 
 const riskStyles: Record<
   RiskLevel,
@@ -61,6 +72,34 @@ const riskMentions: Record<RiskLevel, string> = {
   high: '즉시 점검 필요',
   moderate: '주의 관찰 필요',
   low: '정기 점검 권장'
+};
+
+const PREDICTION_TARGET_ID = 'r-107';
+
+const scoreToRiskLevel = (score: number): RiskLevel => {
+  if (score < 30) {
+    return 'critical';
+  }
+  if (score < 50) {
+    return 'high';
+  }
+  if (score < 70) {
+    return 'moderate';
+  }
+  return 'low';
+};
+
+const toResidentRiskLevel = (riskLevel: string): RiskLevel => {
+  if (riskLevel === 'critical') {
+    return 'critical';
+  }
+  if (riskLevel === 'high') {
+    return 'high';
+  }
+  if (riskLevel === 'moderate') {
+    return 'moderate';
+  }
+  return 'low';
 };
 
 const conditionPool = [
@@ -128,32 +167,91 @@ const labNormalLine: Record<string, number> = {
   'Total Protein': 6.0
 };
 
+type ImportStatus = 'idle' | 'running' | 'success' | 'error';
+
+type ImportUiState<T> = {
+  status: ImportStatus;
+  message: string;
+  batch: T | null;
+};
+
 export function ImportWizard({
   selectedResidentId: externalSelectedResidentId,
-  onNavigateToTemplateEditor
+  onNavigateToTemplateEditor,
+  onNavigateToTemplateHistory
 }: {
   selectedResidentId?: string | null;
   onNavigateToTemplateEditor?: (residentId?: string) => void;
+  onNavigateToTemplateHistory?: (residentId?: string) => void;
 } = {}) {
   const detailColumnRef = useRef<HTMLDivElement | null>(null);
+  const immuneCsvInputRef = useRef<HTMLInputElement | null>(null);
   const scoreAnimationRef = useRef<number | null>(null);
   const animatedScoreRef = useRef(0);
   const previousResidentIdRef = useRef<string | null>(null);
   const [selectedId, setSelectedId] = useState(externalSelectedResidentId ?? residents[0].id);
+  const [predictedResidents, setPredictedResidents] = useState<Record<string, { score: number; risk: RiskLevel }>>({});
   const [activeFilter, setActiveFilter] = useState<'all' | 'critical' | 'high'>('all');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [listHeight, setListHeight] = useState<number | null>(null);
   const [animatedScore, setAnimatedScore] = useState(0);
   const [exportOpen, setExportOpen] = useState(false);
+  const [immuneImportState, setImmuneImportState] = useState<ImportUiState<StoredImmuneBatch>>({
+    status: 'idle',
+    message: '',
+    batch: null
+  });
+  const resolvedResidents = useMemo(
+    () =>
+      residents.map((resident) => {
+        const predicted = predictedResidents[resident.id];
+        return predicted ? { ...resident, score: predicted.score, risk: predicted.risk } : resident;
+      }),
+    [predictedResidents]
+  );
+  const applyPredictionFromBatch = (batch: StoredImmuneBatch | null) => {
+    if (!batch?.items?.length) {
+      return;
+    }
+    const targetItem = batch.items.find(
+      (item) => item?.resident_id === PREDICTION_TARGET_ID && item.prediction
+    );
+    if (!targetItem?.prediction) {
+      return;
+    }
+    setPredictedResidents((prev) => ({
+      ...prev,
+      [PREDICTION_TARGET_ID]: {
+        score: Number(targetItem.prediction.divs_score.toFixed(1)),
+        risk: toResidentRiskLevel(targetItem.prediction.risk_level)
+      }
+    }));
+  };
   useEffect(() => {
     if (externalSelectedResidentId) {
       setSelectedId(externalSelectedResidentId);
       setActiveFilter('all');
     }
   }, [externalSelectedResidentId]);
+  useEffect(() => {
+    try {
+      const immuneRaw = window.localStorage.getItem(IMMUNE_BATCH_STORAGE_KEY);
+      if (immuneRaw) {
+        const immuneBatch = JSON.parse(immuneRaw) as StoredImmuneBatch;
+        setImmuneImportState({
+          status: 'success',
+          message: `최근 면역 CSV 추론 ${immuneBatch.count}건`,
+          batch: immuneBatch
+        });
+        applyPredictionFromBatch(immuneBatch);
+      }
+    } catch {
+      // ignore storage parse errors and keep defaults
+    }
+  }, []);
   const residentConditions = useMemo(() => {
     const map: Record<string, string[]> = {};
-    residents.forEach((resident) => {
+    resolvedResidents.forEach((resident) => {
       const rng = createRng(hashString(resident.id));
       const { min, max } = riskConditionCounts[resident.risk];
       const count = min + Math.floor(rng() * (max - min + 1));
@@ -165,12 +263,15 @@ export function ImportWizard({
       map[resident.id] = shuffled.slice(0, count);
     });
     return map;
-  }, []);
-  const selectedResident = residents.find((resident) => resident.id === selectedId) ?? residents[0];
+  }, [resolvedResidents]);
+  const selectedResident = resolvedResidents.find((resident) => resident.id === selectedId) ?? resolvedResidents[0];
   const details =
     residentDetails[selectedResident.id] ??
     residentDetails['r-101'];
-  const conditions = residentConditions[selectedResident.id] ?? [];
+  const conditions =
+    residentDetails[selectedResident.id]?.conditions?.length
+      ? residentDetails[selectedResident.id].conditions
+      : residentConditions[selectedResident.id] ?? [];
   const prescriptionList = [
     { id: 'rx-1', name: '혈압약 (Amlodipine)', dose: '5mg · 1정', schedule: 'AM 09:00', note: '식후' },
     { id: 'rx-2', name: '당뇨약 (Metformin)', dose: '500mg · 1정', schedule: 'PM 12:00', note: '식후' },
@@ -207,8 +308,10 @@ export function ImportWizard({
     );
   }, [selectedResident.id]);
   const completedActionCount = Object.values(checkedActions).filter((item) => item.checked).length;
-  const actionScoreStep = 0.6;
-  const scoreTarget = Math.min(100, selectedResident.score + completedActionCount * actionScoreStep);
+  const totalActions = details.actions.length;
+  const allActionsChecked = totalActions === 4 && completedActionCount === totalActions;
+  const scoreTarget = Math.min(100, selectedResident.score + (allActionsChecked ? 6.1 : 0));
+  const scoreRiskLevel = scoreToRiskLevel(scoreTarget);
   const conditionPreview = [...conditions, ...details.meds].length
     ? [...conditions, ...details.meds].join(', ')
     : '없음';
@@ -228,22 +331,33 @@ export function ImportWizard({
     minute: '2-digit',
     hour12: false
   });
+  const displayResidents = useMemo(() => {
+    if (!allActionsChecked) {
+      return resolvedResidents;
+    }
+    return resolvedResidents.map((resident) =>
+      resident.id === selectedId
+        ? { ...resident, score: scoreTarget, risk: scoreRiskLevel }
+        : resident
+    );
+  }, [allActionsChecked, resolvedResidents, scoreRiskLevel, scoreTarget, selectedId]);
+
   const riskCounts = useMemo(() => {
-    return residents.reduce(
+    return displayResidents.reduce(
       (acc, resident) => {
         acc[resident.risk] += 1;
         return acc;
       },
       { critical: 0, high: 0, moderate: 0, low: 0 }
     );
-  }, []);
+  }, [displayResidents]);
 
   const filteredResidents = useMemo(() => {
     if (activeFilter === 'all') {
-      return residents;
+      return displayResidents;
     }
-    return residents.filter((resident) => resident.risk === activeFilter);
-  }, [activeFilter]);
+    return displayResidents.filter((resident) => resident.risk === activeFilter);
+  }, [activeFilter, displayResidents]);
 
   const visibleResidents = useMemo(() => {
     const list = [...filteredResidents];
@@ -253,9 +367,9 @@ export function ImportWizard({
 
   useEffect(() => {
     if (!filteredResidents.some((resident) => resident.id === selectedId)) {
-      setSelectedId(filteredResidents[0]?.id ?? residents[0].id);
+      setSelectedId(filteredResidents[0]?.id ?? displayResidents[0].id);
     }
-  }, [filteredResidents, selectedId]);
+  }, [displayResidents, filteredResidents, selectedId]);
 
   useEffect(() => {
     if (!detailColumnRef.current) {
@@ -361,6 +475,48 @@ export function ImportWizard({
     return value.toFixed(2);
   };
 
+  const handleImmuneCsvUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    setImmuneImportState({
+      status: 'running',
+      message: '면역 모델 추론을 실행 중입니다...',
+      batch: immuneImportState.batch
+    });
+
+    try {
+      const result = await runImmuneCsvInference(file);
+      setImmuneImportState({
+        status: result.ok ? 'success' : 'error',
+        message: result.message,
+        batch: result.batch
+      });
+      if (result.ok && result.batch) {
+        applyPredictionFromBatch(result.batch);
+      }
+    } catch {
+      setImmuneImportState({
+        status: 'error',
+        message: '면역 CSV 처리 중 오류가 발생했습니다.',
+        batch: null
+      });
+    } finally {
+      event.target.value = '';
+    }
+  };
+  const handleImmuneCsvClear = () => {
+    window.localStorage.removeItem(IMMUNE_BATCH_STORAGE_KEY);
+    setImmuneImportState({
+      status: 'idle',
+      message: '',
+      batch: null
+    });
+    setPredictedResidents({});
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -377,8 +533,50 @@ export function ImportWizard({
             <Download className="w-4 h-4 mr-2" />
             Export
           </Button>
+          <input
+            ref={immuneCsvInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={handleImmuneCsvUpload}
+          />
+          <div className="relative group">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              onClick={() => immuneCsvInputRef.current?.click()}
+              disabled={immuneImportState.status === 'running'}
+            >
+              {immuneImportState.status === 'running' ? 'CSV 처리 중...' : '면역 CSV'}
+            </Button>
+            <div className="pointer-events-none absolute left-1/2 top-full z-10 mt-2 w-max max-w-[240px] -translate-x-1/2 rounded-md border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-600 opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100">
+              {IMMUNE_CSV_HELP}
+            </div>
+          </div>
+          {immuneImportState.batch ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              onClick={handleImmuneCsvClear}
+              disabled={immuneImportState.status === 'running'}
+            >
+              CSV 초기화
+            </Button>
+          ) : null}
+          {immuneImportState.batch ? (
+            <span className="self-center text-xs text-slate-500">
+              {immuneImportState.batch.count}건 · {formatDateTime(immuneImportState.batch.updated_at)}
+            </span>
+          ) : null}
         </div>
       </div>
+      {immuneImportState.message ? (
+        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
+          {immuneImportState.message}
+        </div>
+      ) : null}
       
       <>
           <div className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-100 p-4 text-red-800">
@@ -439,7 +637,7 @@ export function ImportWizard({
                       : 'border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  전체 <span className="ml-1">{residents.length}</span>
+                  전체 <span className="ml-1">{displayResidents.length}</span>
                 </button>
                 <button
                   type="button"
@@ -523,8 +721,8 @@ export function ImportWizard({
                 <CardHeader className="space-y-3">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-base">이용자 상세</CardTitle>
-                    <Badge className={riskStyles[selectedResident.risk].badge}>
-                      {riskStyles[selectedResident.risk].label}
+                    <Badge className={riskStyles[scoreRiskLevel].badge}>
+                      {riskStyles[scoreRiskLevel].label}
                     </Badge>
                   </div>
                   <div>
@@ -559,11 +757,11 @@ export function ImportWizard({
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div
-                    className={`rounded-xl border ${riskStyles[selectedResident.risk].borderFull} bg-white p-4 text-center`}
+                    className={`rounded-xl border ${riskStyles[scoreRiskLevel].borderFull} bg-white p-4 text-center`}
                   >
                     <p className="text-xs text-muted-foreground">DIVS Score</p>
                     <p
-                      className={`font-black leading-none tracking-tight ${riskStyles[selectedResident.risk].text}`}
+                      className={`font-black leading-none tracking-tight ${riskStyles[scoreRiskLevel].text}`}
                       style={{
                         fontSize: 'clamp(4.5rem, 5.3vw, 9.5rem)',
                         textShadow: 'none'
@@ -572,8 +770,8 @@ export function ImportWizard({
                       {animatedScore.toFixed(1)}
                     </p>
                     <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-foreground shadow-[0_2px_10px_rgba(15,23,42,0.12)]">
-                      <span className={`h-2 w-2 rounded-full ${riskStyles[selectedResident.risk].dot}`} />
-                      {riskStyles[selectedResident.risk].label} - {riskMentions[selectedResident.risk]}
+                      <span className={`h-2 w-2 rounded-full ${riskStyles[scoreRiskLevel].dot}`} />
+                      {riskStyles[scoreRiskLevel].label} - {riskMentions[scoreRiskLevel]}
                     </div>
                   </div>
 
@@ -694,14 +892,6 @@ export function ImportWizard({
                         <span className="text-muted-foreground">기초 면역력</span>
                         <span className="font-medium">{details.baseImmunity} / 100</span>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">환경 위험 계수</span>
-                        <span className="font-medium text-orange-600">× {details.envMultiplier.toFixed(2)}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">개인 조정</span>
-                        <span className="font-medium text-red-600">{details.personalAdjust}점</span>
-                      </div>
                     </div>
                   </div>
 
@@ -790,7 +980,12 @@ export function ImportWizard({
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-base">보호자에게 연락 바로가기</CardTitle>
-                  <Button variant="ghost" size="sm" className="border border-slate-200">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="border border-slate-200"
+                    onClick={() => onNavigateToTemplateHistory?.(selectedResident.id)}
+                  >
                     연락 기록 보기 →
                   </Button>
                 </CardHeader>
@@ -894,7 +1089,7 @@ export function ImportWizard({
                       </tr>
                       <tr>
                         <td className="py-2 font-semibold text-slate-700">위험 등급</td>
-                        <td className="py-2">{riskStyles[selectedResident.risk].label}</td>
+                        <td className="py-2">{riskStyles[scoreRiskLevel].label}</td>
                       </tr>
                       <tr>
                         <td className="py-2 font-semibold text-slate-700">DIVS 점수</td>

@@ -24,6 +24,13 @@ export default function App() {
     setTemplateEditorOpen(true);
     setActiveSection('templates');
   };
+  const handleNavigateToTemplateHistory = (residentId?: string) => {
+    if (residentId) {
+      setSelectedResidentId(residentId);
+    }
+    setTemplateEditorOpen(false);
+    setActiveSection('templates');
+  };
 
   const handleSectionChange = (section: string) => {
     setActiveSection(section);
@@ -41,6 +48,7 @@ export default function App() {
           <ImportWizard
             selectedResidentId={selectedResidentId}
             onNavigateToTemplateEditor={handleNavigateToTemplateEditor}
+            onNavigateToTemplateHistory={handleNavigateToTemplateHistory}
           />
         );
       case 'templates':

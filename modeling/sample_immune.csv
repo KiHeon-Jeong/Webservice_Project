@@ -1,0 +1,2 @@
+resident_id,name,room,age,gender,dementia_yn,parkinson_yn,chf_yn,ckd_yn,copd_yn,cancer_yn,steroid_yn,immunosup_yn,antipsychotic_yn,temp_rr,season_rr,hum_rr,outbreak_rr,room_rr,epi_rr
+r-107,윤미경,203호,81,여,0,0,0,0,0,0,0,0,0,1.0,1.0,1.0,1.0,1.0,1.0

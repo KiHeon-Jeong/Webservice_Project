@@ -19,6 +19,31 @@ npm install
 npm run dev
 ```
 
+## 백엔드 연동 (면역/영양 모델)
+
+모델 API 백엔드는 `backend/`에 있습니다.
+
+1. 백엔드 의존성 설치
+```bash
+cd backend
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+2. 백엔드 실행 (`http://127.0.0.1:8000`)
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+3. 프론트 실행 (`web/` 루트)
+```bash
+npm run dev
+```
+
+프론트는 `/api/immune`, `/api/nutrition` 경로를 Vite proxy로 백엔드에 전달합니다.  
+백엔드가 내려가도 프론트 화면은 기본 더미/폴백 데이터로 계속 동작합니다.
+
 **빌드**
 ```
 npm run build
