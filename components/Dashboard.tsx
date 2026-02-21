@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { motion, AnimatePresence } from 'motion/react';
 import { residents as immuneResidents, residentDetails, type Resident, type ResidentDetail } from './data/immuneResidents';
+import { buildFacilityNotices, formatNoticeDate, type FacilityNotice } from './data/facilityNotices';
 import { IMMUNE_BATCH_STORAGE_KEY, formatDateTime, type StoredImmuneBatch } from './modeling/storage';
 import { 
   Users, 
@@ -199,12 +201,19 @@ const facilityStatus = (score: number) => {
   return { value: '경고', badge: 'bg-red-500', text: 'text-red-600', label: '상태: 경고' };
 };
 
-export function Dashboard({ onNavigateToResident }: { onNavigateToResident?: (residentId: string) => void }) {
+export function Dashboard({
+  onNavigateToResident,
+  onLogout
+}: {
+  onNavigateToResident?: (residentId: string) => void;
+  onLogout?: () => void;
+}) {
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const [selectedResidentId, setSelectedResidentId] = useState<string | null>(null);
   const [predictedResidents, setPredictedResidents] = useState<Record<string, { score: number; risk: Resident['risk'] }>>({});
   const [predictionConnected, setPredictionConnected] = useState(false);
   const [csvBatchInfo, setCsvBatchInfo] = useState<{ count: number; updatedAt: string } | null>(null);
+  const [activeNotice, setActiveNotice] = useState<FacilityNotice | null>(null);
   const residents = useMemo(
     () =>
       immuneResidents.map((resident) => {
@@ -358,12 +367,8 @@ export function Dashboard({ onNavigateToResident }: { onNavigateToResident?: (re
   const today = new Date();
   const formatTwo = (value: number) => value.toString().padStart(2, '0');
   const updateLabel = `${today.getFullYear()}.${formatTwo(today.getMonth() + 1)}.${formatTwo(today.getDate())} 09:00 업데이트`;
-  const recentActivity = [
-    { action: 'Payment received', customer: 'Smith Corp', time: '2m ago' },
-    { action: 'Email sequence completed', customer: 'Johnson LLC', time: '15m ago' },
-    { action: 'New import processed', details: '450 records', time: '1h ago' },
-    { action: 'Campaign started', customer: 'Anderson Inc', time: '2h ago' }
-  ];
+  const noticeDate = formatNoticeDate(today);
+  const recentActivity = buildFacilityNotices(noticeDate);
 
 
   return (
@@ -371,11 +376,13 @@ export function Dashboard({ onNavigateToResident }: { onNavigateToResident?: (re
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1>MainDashboard</h1>
-          <p className="text-muted-foreground">Overview of your collections performance</p>
+          <h1>Dashboard</h1>
+          <p className="text-muted-foreground">이기조 요양원 시설 관리 프로그램입니다.</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline">로그아웃</Button>
+          <Button variant="outline" className="bg-white hover:bg-slate-100" onClick={onLogout}>
+            로그아웃
+          </Button>
           {/* <Button variant="outline">설정</Button> */}
         </div>
       </div>
@@ -421,20 +428,20 @@ export function Dashboard({ onNavigateToResident }: { onNavigateToResident?: (re
           </CardHeader>
           <CardContent className="space-y-4">
             {recentActivity.map((activity, index) => (
-              <div key={index} className="flex items-center justify-between">
+              <button
+                type="button"
+                key={`${activity.title}-${index}`}
+                onClick={() => setActiveNotice(activity)}
+                className="flex w-full items-start justify-between gap-4 rounded-lg border border-transparent p-2 text-left transition hover:border-slate-200 hover:bg-slate-50"
+              >
                 <div className="flex-1">
-                  <p className="font-medium">{activity.action}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {activity.customer || activity.details}
-                  </p>
+                  <p className="font-medium text-slate-900">{activity.title}</p>
+                  <p className="text-sm text-muted-foreground">{activity.summary}</p>
                 </div>
                 <div className="text-right">
-                  {activity.amount && (
-                    <p className="font-medium text-green-600">{activity.amount}</p>
-                  )}
-                  <p className="text-sm text-muted-foreground">{activity.time}</p>
+                  <p className="text-xs text-muted-foreground">{activity.postedAt}</p>
                 </div>
-              </div>
+              </button>
             ))}
           </CardContent>
         </Card>
@@ -580,6 +587,36 @@ export function Dashboard({ onNavigateToResident }: { onNavigateToResident?: (re
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={Boolean(activeNotice)} onOpenChange={(open) => !open && setActiveNotice(null)}>
+        <DialogContent className="max-w-xl p-6 max-h-[85vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold text-slate-900">
+              {activeNotice?.title}
+            </DialogTitle>
+            <DialogDescription className="text-sm text-slate-500">
+              {activeNotice?.summary}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 max-h-[60vh] overflow-y-auto pr-2 text-sm leading-6 text-slate-700">
+            {activeNotice?.content ? (
+              <div className="whitespace-pre-line">{activeNotice.content}</div>
+            ) : (
+              <div className="space-y-3">
+                {activeNotice?.details?.map((detail, index) => (
+                  <div key={`${detail}-${index}`} className="flex items-start gap-2">
+                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-slate-400" />
+                    <span>{detail}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="mt-4 text-xs text-slate-400">
+            공지일: {activeNotice?.postedAt}
+          </div>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

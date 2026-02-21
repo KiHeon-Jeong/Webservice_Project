@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
+import { buildFacilityNotices, formatNoticeDate } from './data/facilityNotices';
 import {
   AlertTriangle,
   BarChart3,
@@ -17,6 +18,7 @@ export function ComplianceCenter() {
     hour: '2-digit',
     minute: '2-digit'
   })}`;
+  const noticeDate = formatNoticeDate(now);
 
   const nutritionOverview = [
     { label: '구독 이용자', value: '86명', detail: '전체 118명 중' },
@@ -32,36 +34,7 @@ export function ComplianceCenter() {
     { plan: '특별식 관리', count: '6명', renewal: '미확정', status: '보류' }
   ];
 
-  const notices = [
-    {
-      id: 1,
-      title: '독감 예방접종 일정 안내',
-      detail: '2층 접종 진행 · 보호자 안내 발송 완료',
-      type: '필독',
-      date: '2026-02-18'
-    },
-    {
-      id: 2,
-      title: '야간 근무 교대 시간 변경',
-      detail: '야간 교대 19:00 → 18:30 적용',
-      type: '안내',
-      date: '2026-02-16'
-    },
-    {
-      id: 3,
-      title: '면회실 방역 점검 예정',
-      detail: '소독 작업으로 오전 10~12시 이용 제한',
-      type: '필독',
-      date: '2026-02-17'
-    },
-    {
-      id: 4,
-      title: '응급 대응 매뉴얼 업데이트',
-      detail: '신규 대응 절차 공유 및 교육 예정',
-      type: '긴급',
-      date: '2026-02-19'
-    }
-  ];
+  const notices = buildFacilityNotices(noticeDate);
 
   const attendanceSummary = [
     { label: '근무중', value: '28명', detail: '야간 6명' },
@@ -443,11 +416,11 @@ export function ComplianceCenter() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-foreground">{notice.title}</p>
-                      <p className="text-xs text-muted-foreground">{notice.detail}</p>
+                      <p className="text-xs text-muted-foreground">{notice.summary}</p>
                     </div>
-                    {renderBadge(notice.type)}
+                    {renderBadge(notice.badge)}
                   </div>
-                  <p className="mt-2 text-xs text-muted-foreground">{notice.date}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">{notice.postedAt}</p>
                 </div>
               ))}
             </CardContent>

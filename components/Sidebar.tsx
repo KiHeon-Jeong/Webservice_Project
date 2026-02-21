@@ -13,6 +13,7 @@ interface SidebarProps {
   onSectionChange: (section: string) => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  canAccessCompliance?: boolean;
 }
 
 const navigationItems = [
@@ -28,9 +29,13 @@ export function Sidebar({
   onSectionChange,
   isCollapsed,
   onToggleCollapse,
+  canAccessCompliance = true,
 }: SidebarProps) {
   void isCollapsed;
   void onToggleCollapse;
+  const visibleNavigationItems = canAccessCompliance
+    ? navigationItems
+    : navigationItems.filter((item) => item.id !== 'compliance');
   return (
     <div
       className="bg-sidebar border-r border-sidebar-border flex w-20 flex-col"
@@ -47,7 +52,7 @@ export function Sidebar({
       {/* Navigation */}
       <nav className="flex-1 p-4">
         <ul className="space-y-2">
-          {navigationItems.map((item) => {
+          {visibleNavigationItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeSection === item.id;
             

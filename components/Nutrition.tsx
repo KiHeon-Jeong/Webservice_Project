@@ -300,6 +300,18 @@ export function Nutrition() {
     }
     return dose.includes('/day') ? dose : `${dose}/day`;
   };
+  const formatSearchSupplementLabel = (value: string) => {
+    const base = value
+      .replace(/\s*\d[\d,.]*\s*(mg|g|iu|mEq)(\/day)?/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const searchLabelMap: Record<string, string> = {
+      '단백질 보충제': '단백질',
+      '비타민 C': '비타민C',
+      'Vitamin C': '비타민C'
+    };
+    return searchLabelMap[base] ?? base;
+  };
   const supplementCount = selectedRecommendations.supplements.length;
   const foodCount = selectedRecommendations.foods.length;
   const supplementMinHeight =
@@ -345,6 +357,12 @@ export function Nutrition() {
     : '없음';
   const supplementLabels = selectedRecommendations.supplements.length
     ? selectedRecommendations.supplements.join(', ')
+    : '없음';
+  const searchSupplementLabels = selectedRecommendations.supplements.map((item) =>
+    formatSearchSupplementLabel(item)
+  );
+  const searchSupplementSummary = searchSupplementLabels.length
+    ? searchSupplementLabels.join(', ')
     : '없음';
   const foodLabels = selectedRecommendations.foods.length
     ? selectedRecommendations.foods.join(', ')
@@ -1320,7 +1338,7 @@ export function Nutrition() {
                       </div>
                       <div className="text-right">
                         <p className="text-xs text-muted-foreground">추천 영양소</p>
-                        <p className="text-sm font-semibold">{supplementLabels}</p>
+                        <p className="text-sm font-semibold">{searchSupplementSummary}</p>
                       </div>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -1329,9 +1347,11 @@ export function Nutrition() {
                           추천 영양소가 없습니다.
                         </span>
                       ) : (
-                        selectedRecommendations.supplements.map((item) => (
+                        selectedRecommendations.supplements.map((item, index) => {
+                          const label = formatSearchSupplementLabel(item);
+                          return (
                           <Badge
-                            key={item}
+                              key={`${item}-${index}`}
                             asChild
                             variant="secondary"
                             className="border border-emerald-100 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
@@ -1339,15 +1359,16 @@ export function Nutrition() {
                             <button
                               type="button"
                               onClick={() => {
-                                const nextQuery = normalizeSupplementQuery(item);
+                                  const nextQuery = normalizeSupplementQuery(label);
                                 setSupplementQuery(nextQuery);
                                 runSupplementSearch(nextQuery);
                               }}
                             >
-                              {item}
+                                {label}
                             </button>
                           </Badge>
-                        ))
+                          );
+                        })
                       )}
                     </div>
                   </div>

@@ -1,8 +1,26 @@
 # --- 보안 및 설정 ---
 .env
+.env.*
+!.env.example
+!.env.sample
+*.local
 *.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.kdbx
 secrets.py
 auth.json
+*secret*.json
+*credential*.json
+*credentials*.json
+*service-account*.json
+*.npmrc
+*.pypirc
+.aws/
+.azure/
+.gcloud/
 
 # --- 파이썬 관련 ---
 __pycache__/
@@ -16,10 +34,16 @@ ENV/
 .venv/
 anaconda3/
 miniconda3/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
 
 # --- 데이터 및 로그 ---
 *.log
 *.sqlite3
+*.sqlite
+*.db
+*.db-journal
 data/*.csv
 !data/sample.csv  # 샘플 데이터만 제외하고 싶을 때 사용
 
