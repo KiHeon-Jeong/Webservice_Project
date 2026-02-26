@@ -133,7 +133,7 @@ export function TemplateLibrary({
     <div className="p-6 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1>최근 보낸 메시지 및 연락 기록</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">최근 보낸 메시지 및 연락 기록</h1>
           <p className="text-muted-foreground">
             보호자에게 발송한 안내 메시지와 연락 기록을 확인합니다.
           </p>
@@ -256,13 +256,6 @@ function TemplateEditor({ onClose, selectedResidentId }: TemplateEditorProps) {
     return map;
   }, [details]);
 
-  const riskLabelMap: Record<RiskLevel, string> = {
-    critical: 'CRITICAL',
-    high: 'HIGH',
-    moderate: 'MODERATE',
-    low: 'LOW'
-  };
-
   const vitalsByRisk: Record<RiskLevel, { temp: string; bp: string; spo2: string }> = {
     critical: { temp: '38.2', bp: '150/92', spo2: '92' },
     high: { temp: '37.6', bp: '138/88', spo2: '94' },
@@ -270,14 +263,33 @@ function TemplateEditor({ onClose, selectedResidentId }: TemplateEditorProps) {
     low: { temp: '36.6', bp: '118/75', spo2: '98' }
   };
 
+  const recommendedActionsText = useMemo(() => {
+    const fallbackActions = residentDetails['r-101']?.actions ?? [];
+    const actionList = (details?.actions?.length ? details.actions : fallbackActions).slice(0, 4);
+    return actionList
+      .map((action, index) => `${index + 1}. ${action.title.trim()} (${action.desc})`)
+      .join('\n');
+  }, [details]);
+
+  const recommendedActionPreview = useMemo(() => {
+    const firstActionTitle = details?.actions?.[0]?.title?.trim().replace(/\s+/g, ' ') ?? '';
+    if (!firstActionTitle) {
+      return '권장 조치...';
+    }
+    const simplified = firstActionTitle
+      .replace(/상태 점검.*/u, '')
+      .replace(/여부 확인.*/u, '')
+      .trim();
+    const shortText = simplified.split(' ').slice(0, 3).join(' ').trim();
+    return `${shortText || simplified}...`;
+  }, [details]);
+
   const tokenValues = useMemo(
     () => ({
       'Resident Name': selectedResident.name,
       Room: selectedResident.room,
       Age: String(selectedResident.age),
       Gender: selectedResident.gender,
-      'Risk Level': riskLabelMap[selectedResident.risk],
-      'DIVS Score': selectedResident.score.toFixed(1),
       Conditions: conditionLabel,
       Temp: vitalsByRisk[selectedResident.risk].temp,
       BP: vitalsByRisk[selectedResident.risk].bp,
@@ -286,20 +298,29 @@ function TemplateEditor({ onClose, selectedResidentId }: TemplateEditorProps) {
       Lymphocyte: labMap.Lymphocyte ?? '-',
       CRP: labMap.CRP ?? '-',
       'Total Protein': labMap['Total Protein'] ?? '-',
+      'Recommended Action': details?.actions?.[0]?.title?.trim() ?? '기본 감염 예방 수칙',
+      'Recommended Actions': recommendedActionsText,
       'Facility Name': '이기조 요양원',
       'Facility Phone': '02-1234-5678'
     }),
-    [selectedResident, conditionLabel, labMap]
+    [selectedResident, conditionLabel, labMap, details, recommendedActionsText]
   );
 
   const baseTemplate = `안녕하세요. {{Resident Name}} 보호자님,
 
 {{Facility Name}}에서 {{Resident Name}} 어르신({{Room}})의 오늘 상태를 안내드립니다.
 
-감염 취약 점수는 {{DIVS Score}}점, 위험등급은 {{Risk Level}} 등급 입니다.
+현재 독감 유행 기간으로 시설 내 감염 예방 수칙을 강화하여 운영 중입니다.
+면회 전 발열, 기침, 인후통 등 호흡기 증상 여부를 꼭 확인해 주세요.
 
-체온 {{Temp}}℃, 혈압 {{BP}}mmHg, 산소포화도 {{SpO2}}%입니다.
-주요 수치: Albumin {{Albumin}}, Lymphocyte {{Lymphocyte}}, CRP {{CRP}}.
+최근 검사 수치는 아래와 같습니다.
+- Albumin: {{Albumin}}
+- Lymphocyte: {{Lymphocyte}}
+- CRP: {{CRP}}
+- Total Protein: {{Total Protein}}
+
+어르신 맞춤 권장 조치는 아래 4가지를 중심으로 시행 중입니다.
+{{Recommended Actions}}
 
 필요 시 담당 간호사에게 연락 부탁드립니다.
 
@@ -330,8 +351,6 @@ function TemplateEditor({ onClose, selectedResidentId }: TemplateEditorProps) {
     { token: '{{Room}}', label: '방 번호', value: tokenValues.Room },
     { token: '{{Age}}', label: '나이', value: tokenValues.Age },
     { token: '{{Gender}}', label: '성별', value: tokenValues.Gender },
-    { token: '{{Risk Level}}', label: '위험 등급', value: tokenValues['Risk Level'] },
-    { token: '{{DIVS Score}}', label: 'DIVS 점수', value: tokenValues['DIVS Score'] },
     { token: '{{Conditions}}', label: '기저질환', value: tokenValues.Conditions },
     { token: '{{Temp}}', label: '체온', value: `${tokenValues.Temp}℃` },
     { token: '{{BP}}', label: '혈압', value: tokenValues.BP },
@@ -340,6 +359,8 @@ function TemplateEditor({ onClose, selectedResidentId }: TemplateEditorProps) {
     { token: '{{Lymphocyte}}', label: 'Lymphocyte', value: tokenValues.Lymphocyte },
     { token: '{{CRP}}', label: 'CRP', value: tokenValues.CRP },
     { token: '{{Total Protein}}', label: 'Total Protein', value: tokenValues['Total Protein'] },
+    { token: '{{Recommended Action}}', label: '권장 조치', value: recommendedActionPreview },
+    { token: '{{Recommended Actions}}', label: '권장 조치(4개)', value: recommendedActionPreview },
     { token: '{{Facility Name}}', label: '시설명', value: tokenValues['Facility Name'] },
     { token: '{{Facility Phone}}', label: '연락처', value: tokenValues['Facility Phone'] }
   ];

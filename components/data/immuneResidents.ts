@@ -51,10 +51,10 @@ export const residentDetails: Record<string, ResidentDetail> = {
     envMultiplier: 3.28,
     personalAdjust: -18,
     labs: [
-      { name: 'Albumin', value: '3.03', status: 'abnormal'},
-      { name: 'Lymphocyte', value: '17.58',  status: 'abnormal'},
-      { name: 'CRP', value: '6.5', status: 'abnormal'},
-      { name: 'Total Protein', value: '104.7', status:'borderline'}
+      { name: 'Albumin', value: '3.03 (3.5-5.5 g/dL)', status: 'abnormal'},
+      { name: 'Lymphocyte', value: '17.58 (20-40 %)',  status: 'abnormal'},
+      { name: 'CRP', value: '6.5 (0-5 mg/L)', status: 'abnormal'},
+      { name: 'Total Protein', value: '104.7 (60-83 g/L)', status:'borderline'}
     ],
     actions: [
       { level: 'warning', title: '창가 외풍 차단 상태 점검', desc: '실내 온도 20-24도 유지' },
@@ -64,16 +64,16 @@ export const residentDetails: Record<string, ResidentDetail> = {
     ]
   },
   'r-105': {
-    conditions: ['뇌혈관질환 후유증'],
+    conditions: ['뇌혈관질환 후유증', '류마티스 관절염'],
     meds: [],
     baseImmunity: 69,
     envMultiplier: 3.28,
     personalAdjust: -18,
     labs: [
-      { name: 'Albumin', value: '3.03', status: 'abnormal'},
-      { name: 'Lymphocyte', value: '17.58',  status: 'abnormal'},
-      { name: 'CRP', value: '6.5', status: 'abnormal'},
-      { name: 'Total Protein', value: '104.7', status:'borderline'}
+      { name: 'Albumin', value: '3.03 (3.5-5.5 g/dL)', status: 'abnormal'},
+      { name: 'Lymphocyte', value: '17.58 (20-40 %)',  status: 'abnormal'},
+      { name: 'CRP', value: '6.5 (0-5 mg/L)', status: 'abnormal'},
+      { name: 'Total Protein', value: '104.7 (60-83 g/L)', status:'borderline'}
     ],
     actions: [
       { level: 'warning', title: '창가 외풍 차단 상태 점검', desc: '실내 온도 20-24도 유지' },

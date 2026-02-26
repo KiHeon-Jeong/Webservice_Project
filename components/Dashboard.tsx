@@ -5,15 +5,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { motion, AnimatePresence } from 'motion/react';
 import { residents as immuneResidents, residentDetails, type Resident, type ResidentDetail } from './data/immuneResidents';
 import { buildFacilityNotices, formatNoticeDate, type FacilityNotice } from './data/facilityNotices';
-import { IMMUNE_BATCH_STORAGE_KEY, formatDateTime, type StoredImmuneBatch } from './modeling/storage';
+import { IMMUNE_BATCH_STORAGE_KEY, type StoredImmuneBatch } from './modeling/storage';
 import { 
-  Users, 
-  HeartPulse,
-  AlertTriangle,
-  ShieldCheck,
-  ArrowUp,
-  ArrowDown,
-  Minus,
   ArrowRight,
   ChevronRight
 } from 'lucide-react';
@@ -145,6 +138,22 @@ const westWingRooms: Record<string, WestWingRoom> = {
   H1: { id: 'H1', name: 'Main Wing Hallway', type: 'hallway', status: 'none' }
 };
 
+const defaultRoomEnvironment: RoomEnvironment = {
+  temperature: 24,
+  humidity: 42,
+  targetTemperature: 24,
+  targetHumidity: 45
+};
+
+const buildInitialRoomEnvironmentMap = (): Record<string, RoomEnvironment> => {
+  return Object.entries(westWingRooms).reduce<Record<string, RoomEnvironment>>((acc, [roomId, room]) => {
+    if (room.environment) {
+      acc[roomId] = { ...room.environment };
+    }
+    return acc;
+  }, {});
+};
+
 const scoreToRiskLevel = (score: number): Resident['risk'] => {
   if (score < 30) {
     return 'critical';
@@ -210,9 +219,9 @@ export function Dashboard({
 }) {
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const [selectedResidentId, setSelectedResidentId] = useState<string | null>(null);
+  const [roomEnvironmentMap, setRoomEnvironmentMap] =
+    useState<Record<string, RoomEnvironment>>(buildInitialRoomEnvironmentMap);
   const [predictedResidents, setPredictedResidents] = useState<Record<string, { score: number; risk: Resident['risk'] }>>({});
-  const [predictionConnected, setPredictionConnected] = useState(false);
-  const [csvBatchInfo, setCsvBatchInfo] = useState<{ count: number; updatedAt: string } | null>(null);
   const [activeNotice, setActiveNotice] = useState<FacilityNotice | null>(null);
   const residents = useMemo(
     () =>
@@ -224,7 +233,17 @@ export function Dashboard({
       }),
     [predictedResidents]
   );
-  const selectedData = selectedRoom ? westWingRooms[selectedRoom] : null;
+  const selectedData = useMemo(() => {
+    if (!selectedRoom) {
+      return null;
+    }
+    const room = westWingRooms[selectedRoom];
+    if (!room) {
+      return null;
+    }
+    const environment = roomEnvironmentMap[selectedRoom] ?? room.environment;
+    return environment ? { ...room, environment } : room;
+  }, [selectedRoom, roomEnvironmentMap]);
   const selectedResident: Resident | null =
     selectedResidentId
       ? residents.find((resident) => resident.id === selectedResidentId) ?? null
@@ -233,6 +252,30 @@ export function Dashboard({
     selectedResident
       ? residentDetails[selectedResident.id] ?? residentDetails['r-101']
       : null;
+
+  const adjustRoomEnvironment = (
+    roomId: string,
+    key: 'targetTemperature' | 'targetHumidity',
+    delta: number
+  ) => {
+    setRoomEnvironmentMap((prev) => {
+      const fallback = westWingRooms[roomId]?.environment ?? defaultRoomEnvironment;
+      const base = prev[roomId] ?? fallback;
+      const rawValue = base[key] + delta;
+      const nextValue =
+        key === 'targetTemperature'
+          ? Math.max(18, Math.min(30, rawValue))
+          : Math.max(20, Math.min(70, rawValue));
+
+      return {
+        ...prev,
+        [roomId]: {
+          ...base,
+          [key]: Number(nextValue.toFixed(1))
+        }
+      };
+    });
+  };
 
   useEffect(() => {
     try {
@@ -259,9 +302,7 @@ export function Dashboard({
       });
       if (Object.keys(next).length) {
         setPredictedResidents((prev) => ({ ...prev, ...next }));
-        setPredictionConnected(true);
       }
-      setCsvBatchInfo({ count: batch.count, updatedAt: batch.updated_at });
     } catch {
       // ignore malformed storage payload
     }
@@ -295,43 +336,48 @@ export function Dashboard({
   const metrics = [
     {
       title: '시설 감염 취약도',
-      value: facilityState.value,
-      detail: `(현재 감염 위험 점수: ${facilityAverageScore}점)`,
-      statusLabel: facilityState.label,
+      value: facilityAverageScore.toFixed(1),
+      unit: '',
+      detail: '현재 감염 위험 점수',
+      statusLabel: facilityState.value,
       statusColor: facilityState.badge,
       statusText: facilityState.text,
-      trend: 'flat',
-      icon: ShieldCheck
+      accentBar:
+        facilityState.value === '경고'
+          ? 'bg-red-500'
+          : facilityState.value === '주의'
+            ? 'bg-amber-500'
+            : 'bg-emerald-500'
     },
     {
       title: '전체 재원 어르신',
-      value: '118 명',
-      detail: '(입원 2명 제외)',
-      statusLabel: '상태: 정상',
+      value: '118',
+      unit: '명',
+      detail: '일일 입원 제외',
+      statusLabel: '정상',
       statusColor: 'bg-emerald-500',
-      statusText: 'text-emerald-600',
-      trend: 'flat',
-      icon: Users
+      statusText: 'text-emerald-700',
+      accentBar: 'bg-emerald-500'
     },
     {
       title: '오늘 감염 주의군',
-      value: `${cautionResidents} 명`,
+      value: `${cautionResidents}`,
+      unit: '명',
       detail: '고위험/주의 대상 합산',
-      statusLabel: '상태: 주의',
-      statusColor: 'bg-red-500',
-      statusText: 'text-red-600',
-      trend: 'up',
-      icon: HeartPulse
+      statusLabel: '주의',
+      statusColor: 'bg-amber-500',
+      statusText: 'text-amber-700',
+      accentBar: 'bg-amber-500'
     },
     {
       title: '현재 격리/집중관리',
-      value: `${criticalResidents} 명`,
+      value: `${criticalResidents}`,
+      unit: '명',
       detail: 'critical 등급 집중 모니터링',
-      statusLabel: '상태: 경고',
-      statusColor: 'bg-orange-500',
-      statusText: 'text-orange-600',
-      trend: 'down',
-      icon: AlertTriangle
+      statusLabel: '경고',
+      statusColor: 'bg-red-500',
+      statusText: 'text-red-700',
+      accentBar: 'bg-red-500'
     }
   ];
   const healthIndices = [
@@ -376,7 +422,7 @@ export function Dashboard({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1>Dashboard</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">SILVER Care Plus+</h1>
           <p className="text-muted-foreground">이기조 요양원 시설 관리 프로그램입니다.</p>
         </div>
         <div className="flex gap-3">
@@ -387,95 +433,55 @@ export function Dashboard({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
-        {/* Metrics Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-2">
-          {metrics.map((metric) => {
-            const Icon = metric.icon;
-            const TrendIcon = metric.trend === 'up'
-              ? ArrowUp
-              : metric.trend === 'down'
-                ? ArrowDown
-                : Minus;
-            return (
-              <Card key={metric.title} className="w-full">
-                <CardHeader className="gap-1 pb-1 pt-4 px-5">
-                  <div className="flex items-start justify-between">
-                    <CardTitle className="text-[21px] font-semibold text-foreground">{metric.title}</CardTitle>
-                    <Icon className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-1 px-5 pb-4">
-                  <div className="text-xl font-semibold text-foreground">{metric.value}</div>
-                  <p className="text-sm text-muted-foreground">{metric.detail}</p>
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className={`h-2.5 w-2.5 rounded-full ${metric.statusColor}`}></span>
-                    <TrendIcon className={`h-3.5 w-3.5 ${metric.statusText}`} />
-                    <span className={metric.statusText}>{metric.statusLabel}</span>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-
-        <Card className="w-full h-full">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-[23px]">요양원 공지사항</CardTitle>
-            <Button variant="ghost" size="sm">
-              View All <ArrowRight className="w-4 h-4 ml-1" />
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {recentActivity.map((activity, index) => (
-              <button
-                type="button"
-                key={`${activity.title}-${index}`}
-                onClick={() => setActiveNotice(activity)}
-                className="flex w-full items-start justify-between gap-4 rounded-lg border border-transparent p-2 text-left transition hover:border-slate-200 hover:bg-slate-50"
-              >
-                <div className="flex-1">
-                  <p className="font-medium text-slate-900">{activity.title}</p>
-                  <p className="text-sm text-muted-foreground">{activity.summary}</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {metrics.map((metric) => {
+          return (
+            <Card key={metric.title} className="relative w-full overflow-hidden border-slate-200 bg-white">
+              <span className={`absolute inset-y-0 left-0 w-1 ${metric.accentBar}`} />
+              <CardHeader className="gap-1 pb-1 pt-4 px-5">
+                <div className="flex items-start justify-between gap-2">
+                  <CardTitle className="text-[21px] font-semibold text-slate-700">{metric.title}</CardTitle>
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold ${metric.statusText}`}
+                  >
+                    <span className={`h-2 w-2 rounded-full ${metric.statusColor}`}></span>
+                    {metric.statusLabel}
+                  </span>
                 </div>
-                <div className="text-right">
-                  <p className="text-xs text-muted-foreground">{activity.postedAt}</p>
+              </CardHeader>
+              <CardContent className="px-5 pb-4">
+                <div className="flex items-end gap-1">
+                  <span className="text-[42px] font-bold leading-none text-slate-900">{metric.value}</span>
+                  {metric.unit ? (
+                    <span className="pb-1 text-[26px] font-semibold leading-none text-slate-700">{metric.unit}</span>
+                  ) : null}
                 </div>
-              </button>
-            ))}
-          </CardContent>
-        </Card>
+                <p className="mt-2 text-sm text-slate-500">{metric.detail}</p>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       {/* Immune Management Summary */}
       <Card>
-        <CardHeader className="border-b border-border pb-2 pt-4 px-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <CardHeader className="border-b border-border px-5 py-3">
+          <div className="flex items-center gap-3">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center text-lg">
                 🧬
               </div>
               <div>
                 <CardTitle className="text-[23px]">감염 위험 관리 요약 </CardTitle>
-                <p className="text-sm text-muted-foreground">
-                 {predictionConnected ? '백엔드 연동됨' : '예시 데이터입니다.'}
-                </p>
-                {csvBatchInfo ? (
-                  <p className="text-xs text-muted-foreground">
-                    최근 CSV 추론: {csvBatchInfo.count}건 · {formatDateTime(csvBatchInfo.updatedAt)}
-                  </p>
-                ) : null}
               </div>
-            </div>
-            <div className="flex gap-2">
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4 px-5 pt-4 pb-5">
+        <CardContent className="space-y-4 px-5 pt-2 pb-5">
           <div className="space-y-2">
             <p className="text-[21px] font-semibold text-muted-foreground">이용자 위치 단면도</p>
             <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-4">
-              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_690px]">
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_690px] lg:items-stretch">
                 <WestWingFloorPlan
                   selectedRoom={selectedRoom}
                   onSelect={handleRoomClick}
@@ -483,8 +489,8 @@ export function Dashboard({
                   residents={residents}
                 />
                 <div className="relative w-full h-full">
-                  <div className="flex flex-col gap-3 h-full">
-                    <div className="rounded-xl border border-border bg-slate-50 p-4 space-y-4 min-h-[230px]">
+                  <div className="flex h-full flex-col gap-3">
+                    <div className="rounded-xl border border-border bg-slate-50 p-4 space-y-4 min-h-[230px] lg:h-full">
                       <div className="flex items-center justify-between">
                         <p className="text-base font-semibold text-muted-foreground">실내 환경 모니터</p>
                         <span className="text-sm text-muted-foreground">Live</span>
@@ -523,7 +529,7 @@ export function Dashboard({
                         시설 전체 평균 · {updateLabel}
                       </p>
                     </div>
-                    <div className="rounded-xl border border-border bg-slate-50 p-4 space-y-4 min-h-[230px]">
+                    <div className="rounded-xl border border-border bg-slate-50 p-4 space-y-4 min-h-[230px] lg:h-full">
                       <div className="flex items-center justify-between">
                         <p className="text-base font-semibold text-muted-foreground">오늘의 생활·보건 지수</p>
                         <span className="text-sm text-muted-foreground">ⓘ</span>
@@ -543,30 +549,35 @@ export function Dashboard({
                         기상청, 국민건강보험공단 발표, 웨더아이 제공 · {updateLabel}
                       </p>
                     </div>
-                    <Card className="flex flex-col flex-1">
-                      <CardHeader className="pb-1 pt-4 px-5">
-                        <CardTitle className="text-[23px]">요양원 지침</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-4 px-5 pb-4 text-sm">
-                        <div className="flex gap-2">
-                          <span>⚠️</span>
-                          <div className="space-y-1">
-                            <p>[경고] 현재 '독감' 유행 중입니다. 면회객 통제 수준을 강화하세요.</p>
-                            <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-                              <li>발열 확인, 호흡기 증상 확인하여 기록</li>
-                              <li>출입시에는 마스크 착용 및 손위생 실시</li>
-                            </ul>
+                    <div className="rounded-xl border border-border bg-slate-50 p-4 space-y-4 min-h-[230px] lg:h-full">
+                      <div className="flex items-center justify-between">
+                        <p className="text-base font-semibold text-muted-foreground">요양원 지침</p>
+                        <span className="text-sm text-muted-foreground">안내</span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3">
+                        <div className="rounded-lg bg-white/80 p-3">
+                          <div className="flex gap-2 text-sm">
+                            <span>⚠️</span>
+                            <div className="space-y-1">
+                              <p>[경고] 현재 '독감' 유행 중입니다. 면회객 통제 수준을 강화하세요.</p>
+                              <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                                <li>발열 확인, 호흡기 증상 확인하여 기록</li>
+                                <li>출입시에는 마스크 착용 및 손위생 실시</li>
+                              </ul>
+                            </div>
                           </div>
                         </div>
-                        <div className="flex gap-2">
-                          <span>💡</span>
-                          <div className="space-y-1">
-                            <p>[권고] 실내 습도가 낮습니다. 가습기 가동 및 환기 시간을 조정하세요.</p>
-                            <p className="text-xs text-muted-foreground">권장 습도: 40~50%를 유지하세요</p>
+                        <div className="rounded-lg bg-white/80 p-3">
+                          <div className="flex gap-2 text-sm">
+                            <span>💡</span>
+                            <div className="space-y-1">
+                              <p>[권고] 실내 습도가 낮습니다. 가습기 가동 및 환기 시간을 조정하세요.</p>
+                              <p className="text-xs text-muted-foreground">권장 습도: 40~50%를 유지하세요</p>
+                            </div>
                           </div>
                         </div>
-                      </CardContent>
-                    </Card>
+                      </div>
+                    </div>
                   </div>
 
                   <AnimatePresence>
@@ -578,7 +589,11 @@ export function Dashboard({
                       />
                     )}
                     {!selectedResident && selectedData && (
-                      <RoomDetailOverlay room={selectedData} onClose={() => setSelectedRoom(null)} />
+                      <RoomDetailOverlay
+                        room={selectedData}
+                        onClose={() => setSelectedRoom(null)}
+                        onAdjustEnvironment={adjustRoomEnvironment}
+                      />
                     )}
                   </AnimatePresence>
                 </div>
@@ -587,6 +602,35 @@ export function Dashboard({
           </div>
         </CardContent>
       </Card>
+
+      <div className="grid grid-cols-1 gap-4 items-stretch">
+        <Card className="w-full h-full">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-[23px]">요양원 공지사항</CardTitle>
+            <Button variant="ghost" size="sm">
+              View All <ArrowRight className="w-4 h-4 ml-1" />
+            </Button>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {recentActivity.map((activity, index) => (
+              <button
+                type="button"
+                key={`${activity.title}-${index}`}
+                onClick={() => setActiveNotice(activity)}
+                className="flex w-full items-start justify-between gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition hover:border-slate-200 hover:bg-slate-50"
+              >
+                <div className="flex-1">
+                  <p className="font-medium text-slate-900">{activity.title}</p>
+                  <p className="mt-0.5 text-sm text-muted-foreground">{activity.summary}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-muted-foreground">{activity.postedAt}</p>
+                </div>
+              </button>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
 
       <Dialog open={Boolean(activeNotice)} onOpenChange={(open) => !open && setActiveNotice(null)}>
         <DialogContent className="max-w-xl p-6 max-h-[85vh] overflow-hidden">
@@ -742,7 +786,7 @@ function WestWingFloorPlan({
           </div>
         </div>
 
-        <div className="relative aspect-[2/1] w-full">
+        <div className="relative aspect-[1.85/1] w-full">
           <svg
             viewBox="0 0 1000 500"
             className="w-full h-full drop-shadow-md"
@@ -1036,13 +1080,20 @@ function WestWingFloorPlan({
   );
 }
 
-function RoomDetailOverlay({ room, onClose }: { room: WestWingRoom; onClose: () => void }) {
-  const env = room.environment ?? {
-    temperature: 24,
-    humidity: 42,
-    targetTemperature: 24,
-    targetHumidity: 45
-  };
+function RoomDetailOverlay({
+  room,
+  onClose,
+  onAdjustEnvironment
+}: {
+  room: WestWingRoom;
+  onClose: () => void;
+  onAdjustEnvironment: (
+    roomId: string,
+    key: 'targetTemperature' | 'targetHumidity',
+    delta: number
+  ) => void;
+}) {
+  const env = room.environment ?? defaultRoomEnvironment;
 
   return (
     <motion.div
@@ -1074,9 +1125,21 @@ function RoomDetailOverlay({ room, onClose }: { room: WestWingRoom; onClose: () 
                 <span className="text-xs text-slate-500">현재 {env.temperature.toFixed(1)}°C</span>
               </div>
               <div className="mt-4 flex items-center justify-between">
-                <button className="h-8 w-8 rounded-full border border-slate-200 bg-white text-slate-500">-</button>
+                <button
+                  type="button"
+                  className="h-8 w-8 rounded-full border border-slate-200 bg-white text-slate-500"
+                  onClick={() => onAdjustEnvironment(room.id, 'targetTemperature', -0.5)}
+                >
+                  -
+                </button>
                 <span className="text-lg font-bold text-slate-800">{env.targetTemperature}°C</span>
-                <button className="h-8 w-8 rounded-full border border-slate-200 bg-white text-slate-500">+</button>
+                <button
+                  type="button"
+                  className="h-8 w-8 rounded-full border border-slate-200 bg-white text-slate-500"
+                  onClick={() => onAdjustEnvironment(room.id, 'targetTemperature', 0.5)}
+                >
+                  +
+                </button>
               </div>
               <p className="mt-2 text-xs text-center text-slate-400">권장 24~26°C</p>
             </div>
@@ -1086,9 +1149,21 @@ function RoomDetailOverlay({ room, onClose }: { room: WestWingRoom; onClose: () 
                 <span className="text-xs text-slate-500">현재 {env.humidity}%</span>
               </div>
               <div className="mt-4 flex items-center justify-between">
-                <button className="h-8 w-8 rounded-full border border-slate-200 bg-white text-slate-500">-</button>
+                <button
+                  type="button"
+                  className="h-8 w-8 rounded-full border border-slate-200 bg-white text-slate-500"
+                  onClick={() => onAdjustEnvironment(room.id, 'targetHumidity', -1)}
+                >
+                  -
+                </button>
                 <span className="text-lg font-bold text-slate-800">{env.targetHumidity}%</span>
-                <button className="h-8 w-8 rounded-full border border-slate-200 bg-white text-slate-500">+</button>
+                <button
+                  type="button"
+                  className="h-8 w-8 rounded-full border border-slate-200 bg-white text-slate-500"
+                  onClick={() => onAdjustEnvironment(room.id, 'targetHumidity', 1)}
+                >
+                  +
+                </button>
               </div>
               <p className="mt-2 text-xs text-center text-slate-400">권장 40~50%</p>
             </div>
@@ -1099,7 +1174,11 @@ function RoomDetailOverlay({ room, onClose }: { room: WestWingRoom; onClose: () 
         </div>
 
         <div className="mt-auto pt-6 border-t border-slate-100">
-          <button className="w-full py-3 bg-slate-900 text-white rounded-xl font-semibold hover:bg-slate-800 transition-colors">
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-3 bg-slate-900 text-white rounded-xl font-semibold hover:bg-slate-800 transition-colors"
+          >
             설정 저장
           </button>
         </div>

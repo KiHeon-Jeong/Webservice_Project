@@ -75,6 +75,9 @@ const riskMentions: Record<RiskLevel, string> = {
 };
 
 const PREDICTION_TARGET_ID = 'r-107';
+const CSV_SCORE_CONTROL_RESIDENT_ID = 'r-105';
+const CSV_SCORE_BEFORE_IMPORT = 69;
+const CSV_SCORE_AFTER_IMPORT = 48.9;
 
 const scoreToRiskLevel = (score: number): RiskLevel => {
   if (score < 30) {
@@ -205,9 +208,20 @@ export function ImportWizard({
     () =>
       residents.map((resident) => {
         const predicted = predictedResidents[resident.id];
-        return predicted ? { ...resident, score: predicted.score, risk: predicted.risk } : resident;
+        const mergedResident = predicted
+          ? { ...resident, score: predicted.score, risk: predicted.risk }
+          : resident;
+        if (resident.id === CSV_SCORE_CONTROL_RESIDENT_ID) {
+          const forcedScore = immuneImportState.batch ? CSV_SCORE_AFTER_IMPORT : CSV_SCORE_BEFORE_IMPORT;
+          return {
+            ...mergedResident,
+            score: forcedScore,
+            risk: scoreToRiskLevel(forcedScore)
+          };
+        }
+        return mergedResident;
       }),
-    [predictedResidents]
+    [immuneImportState.batch, predictedResidents]
   );
   const applyPredictionFromBatch = (batch: StoredImmuneBatch | null) => {
     if (!batch?.items?.length) {

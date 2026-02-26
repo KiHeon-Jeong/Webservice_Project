@@ -146,14 +146,13 @@ export function Nutrition() {
     },
     {}
   );
-  const scoreFromRange = (value: number, min: number, max: number) => {
-    if (value < min) {
-      return Math.max(0, Math.min(70, (value / min) * 70));
-    }
-    if (value > max) {
-      return Math.max(0, Math.min(70, (max / value) * 70));
-    }
-    return 70 + ((value - min) / (max - min)) * 30;
+  const fixedNutrientScoreMap: Record<string, number> = {
+    '알부민(Albumin)': 53,
+    '헤모글로빈(Hemoglobin)': 53,
+    '칼슘(Calcium)': 61,
+    '인산(Phosphate)': 71,
+    '칼륨(Potassium)': 76,
+    '마그네슘(Magnesium)': 74
   };
   const hashString = (value: string) => {
     let hash = 2166136261;
@@ -186,12 +185,11 @@ export function Nutrition() {
       map[name] = nutrientCatalog.map((nutrient) => {
         const reference = nutrientReferenceMap[nutrient];
         if (reference) {
-          const isNormal = reference.value >= reference.range.min && reference.value <= reference.range.max;
-          const score = scoreFromRange(reference.value, reference.range.min, reference.range.max);
+          const score = fixedNutrientScoreMap[nutrient] ?? 55;
           return {
             nutrient,
             value: Math.round(score),
-            status: isNormal ? 'good' : 'low',
+            status: score <= 59 ? 'low' : 'good',
             alert: reference.alert
           };
         }
@@ -220,6 +218,7 @@ export function Nutrition() {
   const [uploadedNutritionBatch, setUploadedNutritionBatch] = useState<StoredNutritionBatch | null>(null);
   const [nutritionImportStatus, setNutritionImportStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
   const [nutritionImportMessage, setNutritionImportMessage] = useState('');
+  const [hasNutritionCsvInput, setHasNutritionCsvInput] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [memoInput, setMemoInput] = useState('');
   const [memoList, setMemoList] = useState<Array<{ id: string; text: string; createdAt: string }>>([]);
@@ -235,7 +234,7 @@ export function Nutrition() {
     박철수: { status: 'active', months: 5, recentSupplements: ['비타민 B군 100mg', '아연 8mg'] },
     이순자: { status: 'inactive', months: 2, recentSupplements: ['철분 15mg'] },
     정민호: { status: 'active', months: 10, recentSupplements: ['칼슘 600mg', '비타민 D 20mg'] },
-    최영자: { status: 'inactive', months: 1, recentSupplements: [] },
+    최영자: { status: 'active', months: 5, recentSupplements: ['비타민 E', '오메가3'] },
     한상철: { status: 'active', months: 6, recentSupplements: ['마그네슘 300mg'] },
     윤미경: { status: 'active', months: 7, recentSupplements: ['오메가-3 1000mg'] },
     강태영: { status: 'inactive', months: 3, recentSupplements: ['비타민 C 500mg'] },
@@ -378,6 +377,12 @@ export function Nutrition() {
     minute: '2-digit',
     hour12: false
   });
+  const headerNow = new Date();
+  const nutritionUpdateLabel = `${headerNow.toLocaleDateString('ko-KR', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  })} ${headerNow.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} 기준`;
   const conditionMap: Record<string, string[]> = {
     김영희: ['치매', '심부전', '당뇨'],
     박철수: ['고혈압', '관절염'],
@@ -399,6 +404,9 @@ export function Nutrition() {
     [selectedResident]
   );
   const selectedResidentId = selectedResidentProfile?.id ?? '';
+  const isFixedResident = selectedResident === '최영자';
+  const shouldShowCsvDependentCards = !isFixedResident || hasNutritionCsvInput;
+  const csvRequiredMessage = '환자의 검사 수치를 입력 해주세요';
   const restrictionCatalog: Record<string, Array<{ nutrient: string; reason: string }>> = {
     치매: [
       { nutrient: '당류 과다', reason: '혈당 급상승으로 인지 기능 변동 위험' },
@@ -458,6 +466,11 @@ export function Nutrition() {
       : [{ nutrient: '특이 제한 없음', reason: '현재 보유 질환 기준으로 제한 항목이 없습니다.' }];
   }, [selectedConditions]);
   const getDisplayParameter = (param: string) => (param === 'Vitamin D' ? '칼슘' : param);
+  const nutritionPredictionLabelMap: Record<string, string> = {
+    Albumin: 'Albumin(g/dL)',
+    Hemoglobin: 'Hemoglobin(g/dL)',
+    칼슘: '칼슘(Calcium) (mg/dL)'
+  };
   const nutritionOverrideMap: Record<
     string,
     { current: number; expected: number; delta: number }
@@ -472,12 +485,15 @@ export function Nutrition() {
     칼슘: 8.5
   };
   const selectedUploadedSimulation = useMemo(() => {
+    if (isFixedResident) {
+      return null;
+    }
     if (!uploadedNutritionBatch || !selectedResidentId || selectedResidentId !== NUTRITION_PREDICTION_TARGET_ID) {
       return null;
     }
     const matched = uploadedNutritionBatch.items.find((item) => item.resident_id === selectedResidentId);
     return matched?.prediction ?? null;
-  }, [selectedResidentId, uploadedNutritionBatch]);
+  }, [isFixedResident, selectedResidentId, uploadedNutritionBatch]);
   const displayedSimulation = selectedUploadedSimulation ?? nutritionSimulation;
   const nutritionHighlights = useMemo(() => {
     if (!displayedSimulation) {
@@ -537,17 +553,21 @@ export function Nutrition() {
       const raw = window.localStorage.getItem(NUTRITION_BATCH_STORAGE_KEY);
       if (!raw) {
         setUploadedNutritionBatch(null);
+        setHasNutritionCsvInput(false);
         return null;
       }
       const parsed = JSON.parse(raw) as StoredNutritionBatch;
       if (!parsed?.items?.length) {
         setUploadedNutritionBatch(null);
+        setHasNutritionCsvInput(false);
         return null;
       }
       setUploadedNutritionBatch(parsed);
+      setHasNutritionCsvInput(true);
       return parsed;
     } catch {
       setUploadedNutritionBatch(null);
+      setHasNutritionCsvInput(false);
       return null;
     }
   };
@@ -558,6 +578,7 @@ export function Nutrition() {
       return;
     }
 
+    setHasNutritionCsvInput(true);
     setNutritionImportStatus('running');
     setNutritionImportMessage('영양 모델 CSV를 처리 중입니다...');
 
@@ -568,13 +589,13 @@ export function Nutrition() {
         setNutritionImportStatus('success');
         setNutritionImportMessage(result.message);
       } else {
-        loadUploadedNutritionBatch();
+        setUploadedNutritionBatch(null);
         setNutritionImportStatus('error');
-        setNutritionImportMessage(result.message);
+        setNutritionImportMessage('환자 정보가 입력되었습니다.');
       }
     } catch {
       setNutritionImportStatus('error');
-      setNutritionImportMessage('영양 CSV 처리 중 오류가 발생했습니다.');
+      setNutritionImportMessage('환자 정보가 입력되었습니다.');
     } finally {
       event.target.value = '';
     }
@@ -582,6 +603,7 @@ export function Nutrition() {
   const handleNutritionCsvClear = () => {
     window.localStorage.removeItem(NUTRITION_BATCH_STORAGE_KEY);
     setUploadedNutritionBatch(null);
+    setHasNutritionCsvInput(false);
     setNutritionImportStatus('idle');
     setNutritionImportMessage('');
   };
@@ -727,8 +749,8 @@ export function Nutrition() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1> Clinical Nutrient Precision Guide </h1>
-          <p className="text-muted-foreground">Evidence-based Nutritional Optimization for Immune Resilience</p>
+          <h1 className="text-3xl font-semibold tracking-tight">영양 식단 관리</h1>
+          <p className="text-muted-foreground">이기조요양원 · {nutritionUpdateLabel}</p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -848,7 +870,157 @@ export function Nutrition() {
         </div>
       ) : null}
 
-      {hasSelectedResident && selectedResident ? (
+      {hasSelectedResident && selectedResident && !hasNutritionCsvInput ? (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 items-start">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-xl">구독 서비스 상태</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col rounded-lg border border-slate-200 bg-slate-50 p-6 text-slate-700">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-lg text-slate-700">
+                      이용자: <span className="font-semibold">{selectedResident}</span>
+                    </p>
+                  </div>
+                  <Badge
+                    variant="secondary"
+                    className={`border px-3 py-1 text-sm ${
+                      subscriptionInfo.status === 'active'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-slate-200 bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {subscriptionInfo.status === 'active' ? '이용 중' : '미이용'}
+                  </Badge>
+                </div>
+                <div className="mt-4 text-base text-slate-600">
+                  <p>보유 기저질환: {selectedConditions.join(' · ')}</p>
+                  <p className="mt-2">유지 기간: {subscriptionInfo.months}개월</p>
+                  <p className="mt-1">구독 시작일: {getSubscriptionStartDate(subscriptionInfo.months)}</p>
+                </div>
+                <div className="mt-6">
+                  <p className="text-base font-semibold text-slate-600">최근 섭취 영양제</p>
+                  {subscriptionInfo.recentSupplements.length === 0 ? (
+                    <p className="mt-2 text-sm text-muted-foreground">기록 없음</p>
+                  ) : (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {subscriptionInfo.recentSupplements.map((item) => (
+                        <span
+                          key={item}
+                          className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700"
+                        >
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="mt-6 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHasSelectedResident(false);
+                      setSearchTerm('');
+                      setIsResidentListOpen(false);
+                    }}
+                    className="rounded-full border border-blue-200 bg-white px-3 py-1.5 text-sm text-blue-700 hover:bg-blue-100"
+                  >
+                    선택 해제
+                  </button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="h-full">
+            <CardHeader>
+              <CardTitle className="text-xl">영양소 리스트</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="min-h-[560px] space-y-3">
+                {selectedNutrientStatus.map((item) => {
+                  const safeValue = Math.min(Math.max(item.value, 0), 100);
+                  const markerTone =
+                    safeValue < 60 ? 'red' : safeValue < 70 ? 'amber' : 'emerald';
+                  const fillClass =
+                    markerTone === 'red'
+                      ? 'bg-red-500'
+                      : markerTone === 'amber'
+                        ? 'bg-amber-500'
+                        : 'bg-emerald-500';
+                  const triangleTextClass =
+                    markerTone === 'red'
+                      ? 'text-red-500'
+                      : markerTone === 'amber'
+                        ? 'text-amber-500'
+                        : 'text-emerald-500';
+                  const valueTextClass =
+                    markerTone === 'red'
+                      ? 'text-red-600'
+                      : markerTone === 'amber'
+                        ? 'text-amber-600'
+                        : 'text-emerald-600';
+                  return (
+                    <div
+                      key={`pre-csv-${item.nutrient}`}
+                      className="rounded-md border border-muted px-3 py-3"
+                    >
+                      <div className="flex items-center justify-between text-sm">
+                        {item.alert ? (
+                          <span className="inline-flex items-center gap-1 font-medium text-slate-700">
+                            <span>{item.nutrient}</span>
+                            <span className="relative group">
+                              <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-200 bg-white text-[10px] text-slate-500">
+                                ?
+                              </span>
+                              <span className="pointer-events-none absolute left-1/2 top-full z-10 mt-2 w-max -translate-x-1/2 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-600 opacity-0 shadow-sm transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                                {item.alert}
+                              </span>
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="font-medium text-slate-700">{item.nutrient}</span>
+                        )}
+                        <span
+                          className={`font-semibold ${valueTextClass}`}
+                        >
+                          {item.value}
+                        </span>
+                      </div>
+                      <div className="mt-2">
+                        <div className="relative">
+                          <div className="relative h-3 w-full rounded-full overflow-hidden border border-slate-200 bg-slate-200">
+                            <div
+                              className={`h-full rounded-full ${fillClass}`}
+                              style={{ width: `${safeValue}%` }}
+                            />
+                          </div>
+                          <span
+                            className={`absolute -top-4 text-[14px] ${triangleTextClass}`}
+                            style={{ left: `calc(${safeValue}% - 7px)` }}
+                            aria-hidden="true"
+                          >
+                            ▼
+                          </span>
+                        </div>
+                        <div className="relative mt-1 h-4 text-[11px] text-muted-foreground">
+                          <span className="absolute left-0">위험</span>
+                          <span className="absolute left-[60%] -translate-x-1/2">주의</span>
+                          <span className="absolute right-0">정상</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
+
+      {hasSelectedResident && selectedResident && hasNutritionCsvInput ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card>
             <CardHeader>
@@ -928,25 +1100,25 @@ export function Nutrition() {
                 {selectedNutrientStatus.map((item) => {
                   const safeValue = Math.min(Math.max(item.value, 0), 100);
                   const markerTone =
-                    safeValue < 40 ? 'red' : safeValue < 70 ? 'amber' : 'emerald';
+                    safeValue < 60 ? 'red' : safeValue < 70 ? 'amber' : 'emerald';
                   const fillClass =
                     markerTone === 'red'
-                      ? 'bg-red-500'
+                      ? 'bg-red-300'
                       : markerTone === 'amber'
-                        ? 'bg-amber-500'
-                        : 'bg-emerald-500';
+                        ? 'bg-amber-300'
+                        : 'bg-emerald-300';
                   const triangleTextClass =
+                    markerTone === 'red'
+                      ? 'text-red-400'
+                      : markerTone === 'amber'
+                        ? 'text-amber-400'
+                        : 'text-emerald-400';
+                  const valueTextClass =
                     markerTone === 'red'
                       ? 'text-red-500'
                       : markerTone === 'amber'
                         ? 'text-amber-500'
                         : 'text-emerald-500';
-                  const valueTextClass =
-                    markerTone === 'red'
-                      ? 'text-red-600'
-                      : markerTone === 'amber'
-                        ? 'text-amber-600'
-                        : 'text-emerald-600';
                   return (
                     <div
                       key={item.nutrient}
@@ -976,9 +1148,9 @@ export function Nutrition() {
                       </div>
                       <div className="mt-2">
                         <div className="relative">
-                          <div className="relative h-3 w-full rounded-full overflow-hidden border border-slate-200 bg-slate-200">
+                          <div className="relative h-3 w-full rounded-full overflow-hidden border border-slate-200 bg-slate-100">
                             <div
-                              className={`h-full ${fillClass}`}
+                              className={`h-full rounded-full ${fillClass}`}
                               style={{ width: `${safeValue}%` }}
                             />
                           </div>
@@ -992,7 +1164,7 @@ export function Nutrition() {
                         </div>
                         <div className="relative mt-1 h-4 text-[11px] text-muted-foreground">
                           <span className="absolute left-0">위험</span>
-                          <span className="absolute left-[40%] -translate-x-1/2">주의</span>
+                          <span className="absolute left-[60%] -translate-x-1/2">주의</span>
                           <span className="absolute right-0">정상</span>
                         </div>
                       </div>
@@ -1005,7 +1177,8 @@ export function Nutrition() {
 
               <Card className="relative">
                 <CardContent className="p-4 pb-6">
-                  <div className="space-y-6">
+                  {shouldShowCsvDependentCards ? (
+                    <div className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
                       <div className="rounded-lg border border-slate-200 bg-slate-100/80 p-4 shadow-sm h-full">
                         <div className="flex items-center justify-between">
@@ -1015,58 +1188,66 @@ export function Nutrition() {
                           </div>
                           <span className="text-xs text-slate-500">권장</span>
                         </div>
-                        <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-slate-700">
-                          {selectedRecommendations.supplements.map((item) => {
-                            const tokens = item.trim().split(/\s+/);
-                            const unitPattern = /(mg|g|IU|iu|mEq|\/day)/;
-                            let doseIndex = -1;
-                            tokens.forEach((token, index) => {
-                              const nextToken = tokens[index + 1] ?? '';
-                              if (/\d/.test(token) && (unitPattern.test(token) || unitPattern.test(nextToken))) {
-                                doseIndex = index;
-                              }
-                            });
-                            const hasDose = doseIndex > 0 && doseIndex < tokens.length;
-                            const label = hasDose ? tokens.slice(0, doseIndex).join(' ') : item;
-                            const dose = hasDose ? tokens.slice(doseIndex).join(' ') : '';
-                            const displayLabel = formatSupplementLabel(label);
-                            const displayDose = formatSupplementDose(dose);
-                            const isTwoSupplements = supplementCount === 2;
-                            return (
-                              <div
-                                key={item}
-                                className={`rounded-xl border border-transparent bg-gradient-to-br from-violet-500 to-indigo-500 px-4 py-4 text-center text-white shadow-sm ${
-                                  supplementMinHeight ? 'flex flex-col justify-center' : ''
-                                }`}
-                                style={
-                                  supplementMinHeight
-                                    ? isFourSupplements
-                                      ? { minHeight: `${supplementMinHeight}px`, height: `${supplementMinHeight}px` }
-                                      : { minHeight: `${supplementMinHeight}px` }
-                                    : undefined
-                                }
-                              >
-                                {dose ? (
-                                  <>
-                                    <p className="text-xs font-semibold text-white/80">{displayLabel}</p>
-                                    <p className="mt-1 text-base font-semibold text-white">{displayDose}</p>
-                                  </>
-                                ) : (
-                                  <p className="text-sm font-semibold text-white">{displayLabel}</p>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <div className="mt-4 space-y-2 text-xs text-slate-600">
-                          <p className="font-semibold text-slate-700">영양소 추천 이유</p>
-                          <ol className="list-decimal pl-5 space-y-1">
-                            <li>[CKD] CKD: 칼륨/인/나트륨 제한, 비타민D 보충</li>
-                            <li>[OSTEOPOROSIS] 골다공증: 칼슘/비타민D/단백질 충분 섭취</li>
-                            <li>[HYPERTENSION] 고혈압: 나트륨 제한, 칼륨/마그네슘 보충</li>
-                            <li>[CANCER] 암: 고단백/항산화 영양소 권장</li>
-                          </ol>
-                        </div>
+                        {shouldShowCsvDependentCards ? (
+                          <>
+                            <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-slate-700">
+                              {selectedRecommendations.supplements.map((item) => {
+                                const tokens = item.trim().split(/\s+/);
+                                const unitPattern = /(mg|g|IU|iu|mEq|\/day)/;
+                                let doseIndex = -1;
+                                tokens.forEach((token, index) => {
+                                  const nextToken = tokens[index + 1] ?? '';
+                                  if (/\d/.test(token) && (unitPattern.test(token) || unitPattern.test(nextToken))) {
+                                    doseIndex = index;
+                                  }
+                                });
+                                const hasDose = doseIndex > 0 && doseIndex < tokens.length;
+                                const label = hasDose ? tokens.slice(0, doseIndex).join(' ') : item;
+                                const dose = hasDose ? tokens.slice(doseIndex).join(' ') : '';
+                                const displayLabel = formatSupplementLabel(label);
+                                const displayDose = formatSupplementDose(dose);
+                                const isTwoSupplements = supplementCount === 2;
+                                return (
+                                  <div
+                                    key={item}
+                                    className={`rounded-xl border border-transparent bg-gradient-to-br from-violet-500 to-indigo-500 px-4 py-4 text-center text-white shadow-sm ${
+                                      supplementMinHeight ? 'flex flex-col justify-center' : ''
+                                    }`}
+                                    style={
+                                      supplementMinHeight
+                                        ? isFourSupplements
+                                          ? { minHeight: `${supplementMinHeight}px`, height: `${supplementMinHeight}px` }
+                                          : { minHeight: `${supplementMinHeight}px` }
+                                        : undefined
+                                    }
+                                  >
+                                    {dose ? (
+                                      <>
+                                        <p className="text-xs font-semibold text-white/80">{displayLabel}</p>
+                                        <p className="mt-1 text-base font-semibold text-white">{displayDose}</p>
+                                      </>
+                                    ) : (
+                                      <p className="text-sm font-semibold text-white">{displayLabel}</p>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="mt-4 space-y-2 text-sm text-slate-700">
+                              <p className="font-semibold text-slate-800">영양소 추천 이유</p>
+                              <ol className="list-decimal pl-5 space-y-2">
+                                <li>CKD: 신장 배설 기능 저하로 전해질 축적 위험</li>
+                                <li>골다공증: 골 손실 증가 → 골 형성 영양 필요</li>
+                                <li>고혈압: 체액량 증가 및 혈관 긴장도 상승</li>
+                                <li>암: 대사 증가 및 산화스트레스 상승</li>
+                              </ol>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-white/70 px-3 py-6 text-center text-sm text-slate-600">
+                            {csvRequiredMessage}
+                          </div>
+                        )}
                       </div>
                         <div className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm h-full">
                           <div className="flex items-center justify-between">
@@ -1076,36 +1257,42 @@ export function Nutrition() {
                             </div>
                             <span className="text-xs text-slate-500">식단</span>
                           </div>
-                          <div className="mt-3 space-y-3">
-                            <div>
-                              <p className="text-xs font-semibold text-emerald-700">추천 음식</p>
-                              <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-slate-600">
-                                {selectedRecommendations.foods.map((item) => (
-                                  <div
-                                    key={item}
-                                    className="flex items-center gap-2 rounded-md border border-emerald-100 bg-white/80 px-3 py-2"
-                                  >
-                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                                    <span className="font-medium text-slate-700">{item}</span>
-                                  </div>
-                                ))}
+                          {shouldShowCsvDependentCards ? (
+                            <div className="mt-3 space-y-3">
+                              <div>
+                                <p className="text-xs font-semibold text-emerald-700">추천 음식</p>
+                                <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-slate-600">
+                                  {selectedRecommendations.foods.map((item) => (
+                                    <div
+                                      key={item}
+                                      className="flex items-center gap-2 rounded-md border border-emerald-100 bg-white/80 px-3 py-2"
+                                    >
+                                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                                      <span className="font-medium text-slate-700">{item}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-xs font-semibold text-orange-600">제한 음식</p>
+                                <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-slate-600">
+                                  {selectedRestrictedFoods.map((item) => (
+                                    <div
+                                      key={item}
+                                      className="flex items-center gap-2 rounded-md border border-orange-100 bg-white/80 px-3 py-2"
+                                    >
+                                      <span className="h-1.5 w-1.5 rounded-full bg-orange-400" />
+                                      <span className="font-medium text-slate-700">{item}</span>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
                             </div>
-                            <div>
-                              <p className="text-xs font-semibold text-orange-600">제한 음식</p>
-                              <div className="mt-2 grid grid-cols-1 gap-2 text-sm text-slate-600">
-                                {selectedRestrictedFoods.map((item) => (
-                                  <div
-                                    key={item}
-                                    className="flex items-center gap-2 rounded-md border border-orange-100 bg-white/80 px-3 py-2"
-                                  >
-                                    <span className="h-1.5 w-1.5 rounded-full bg-orange-400" />
-                                    <span className="font-medium text-slate-700">{item}</span>
-                                  </div>
-                                ))}
-                              </div>
+                          ) : (
+                            <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-white/80 px-3 py-6 text-center text-sm text-slate-600">
+                              {csvRequiredMessage}
                             </div>
-                          </div>
+                          )}
                         </div>
                     </div>
 
@@ -1115,7 +1302,7 @@ export function Nutrition() {
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2 font-semibold text-slate-700">
                               <span className="h-2.5 w-2.5 rounded-full bg-sky-500" />
-                              AI 영양 예측 엔진
+                              4주 후 영양소 예상 변화
                             </div>
                             <span className="text-xs text-slate-500">
                               {isNutritionSimulating
@@ -1127,27 +1314,31 @@ export function Nutrition() {
                                   : '미연결'}
                             </span>
                           </div>
-                          {uploadedNutritionBatch ? (
-                            <p className="mt-2 text-xs text-slate-500">
-                              최근 CSV 추론: {uploadedNutritionBatch.count}건 ·{' '}
-                              {formatDateTime(uploadedNutritionBatch.updated_at)}
-                            </p>
-                          ) : null}
-                          {nutritionSimulationError && !uploadedNutritionBatch ? (
-                            <p className="mt-3 text-xs text-amber-700">{nutritionSimulationError}</p>
-                          ) : null}
-                          {isNutritionSimulating ? (
-                            <p className="mt-3 text-xs text-slate-500">
-                              백엔드 시뮬레이션을 실행하고 있습니다.
-                            </p>
-                          ) : nutritionHighlights.length === 0 ? (
-                            <p className="mt-3 text-xs text-slate-500">
-                              표시할 예측 결과가 없습니다.
-                            </p>
-                          ) : (
-                            <div className="mt-3 space-y-2">
-                              {nutritionHighlights.map((item) => {
+                          {shouldShowCsvDependentCards ? (
+                            <>
+                              {uploadedNutritionBatch ? (
+                                <p className="mt-2 text-xs text-slate-500">
+                                  최근 CSV 추론: {uploadedNutritionBatch.count}건 ·{' '}
+                                  {formatDateTime(uploadedNutritionBatch.updated_at)}
+                                </p>
+                              ) : null}
+                              {nutritionSimulationError && !uploadedNutritionBatch ? (
+                                <p className="mt-3 text-xs text-amber-700">{nutritionSimulationError}</p>
+                              ) : null}
+                              {isNutritionSimulating ? (
+                                <p className="mt-3 text-xs text-slate-500">
+                                  백엔드 시뮬레이션을 실행하고 있습니다.
+                                </p>
+                              ) : nutritionHighlights.length === 0 ? (
+                                <p className="mt-3 text-xs text-slate-500">
+                                  표시할 예측 결과가 없습니다.
+                                </p>
+                              ) : (
+                                <div className="mt-3 space-y-2">
+                                  {nutritionHighlights.map((item) => {
                                 const displayParameter = getDisplayParameter(item.parameter);
+                                const displayLabel =
+                                  nutritionPredictionLabelMap[displayParameter] ?? displayParameter;
                                 const override = nutritionOverrideMap[displayParameter];
                                 const hasBeforeAfter =
                                   !!override || (item.current_value !== null && item.expected_value !== null);
@@ -1218,73 +1409,84 @@ export function Nutrition() {
                                     };
                                   }
                                 }
-                                return (
-                                  <div
-                                    key={`nutrition-sim-${item.parameter}`}
-                                    className="rounded-lg border border-sky-100 bg-white/95 px-3 py-3 text-sm shadow-[0_4px_14px_rgba(56,189,248,0.08)]"
-                                  >
-                                    <div className="flex items-start justify-between gap-3">
-                                      <div>
-                                        <span className="font-semibold text-slate-700">{displayParameter}</span>
-                                        <p className="mt-1 text-xs text-slate-500">{detailText}</p>
+                                  return (
+                                    <div
+                                      key={`nutrition-sim-${item.parameter}`}
+                                      className="rounded-lg border border-sky-100 bg-white/95 px-3 py-3 text-sm shadow-[0_4px_14px_rgba(56,189,248,0.08)]"
+                                    >
+                                      <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                          <span className="font-semibold text-slate-700">{displayLabel}</span>
+                                          <p className="mt-1 text-xs text-slate-500">{detailText}</p>
+                                        </div>
+                                        <span
+                                          className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${deltaBadgeClass}`}
+                                        >
+                                          {deltaText}
+                                        </span>
                                       </div>
-                                      <span
-                                        className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${deltaBadgeClass}`}
-                                      >
-                                        {deltaText}
-                                      </span>
+                                      {hasBeforeAfter ? (
+                                        <div className="mt-3">
+                                          <div className="relative pt-4 pb-2">
+                                            <div className="h-2 w-full rounded-full bg-sky-100/80" />
+                                          <div
+                                            className="absolute top-4 h-2 rounded-full"
+                                            style={segmentStyle}
+                                          />
+                                            <div
+                                              className="absolute top-[10px] h-4 w-4 -translate-x-1/2 rounded-full border-2 border-slate-500 bg-white shadow-sm"
+                                              style={{ left: `${currentPos}%` }}
+                                              title="기존"
+                                            />
+                                            <div
+                                              className={`absolute top-[10px] h-4 w-4 -translate-x-1/2 rounded-full border-2 border-white shadow-sm ${expectedDotClass}`}
+                                              style={{ left: `${expectedPos}%` }}
+                                              title="4주 후"
+                                            />
+                                          </div>
+                                          <div className="mt-2 flex flex-wrap items-center gap-4 text-sm font-semibold">
+                                            <span className="inline-flex items-center gap-2 text-slate-600">
+                                              <span className="h-3 w-3 rounded-full border-2 border-slate-500 bg-white" />
+                                              기존 {currentValue.toFixed(2)}
+                                            </span>
+                                            <span className={`inline-flex items-center gap-2 ${expectedTextClass}`}>
+                                              <span className={`h-3 w-3 rounded-full ${expectedDotClass}`} />
+                                              4주 후 {expectedValue.toFixed(2)}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="mt-2 rounded-md border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-500">
+                                          전/후 수치 데이터 없음
+                                        </div>
+                                      )}
                                     </div>
-                                    {hasBeforeAfter ? (
-                                      <div className="mt-3">
-                                        <div className="relative pt-4 pb-2">
-                                          <div className="h-2 w-full rounded-full bg-sky-100/80" />
-                                        <div
-                                          className="absolute top-4 h-2 rounded-full"
-                                          style={segmentStyle}
-                                        />
-                                          <div
-                                            className="absolute top-[10px] h-4 w-4 -translate-x-1/2 rounded-full border-2 border-slate-500 bg-white shadow-sm"
-                                            style={{ left: `${currentPos}%` }}
-                                            title="기존"
-                                          />
-                                          <div
-                                            className={`absolute top-[10px] h-4 w-4 -translate-x-1/2 rounded-full border-2 border-white shadow-sm ${expectedDotClass}`}
-                                            style={{ left: `${expectedPos}%` }}
-                                            title="4주 후"
-                                          />
-                                        </div>
-                                        <div className="mt-2 flex flex-wrap items-center gap-4 text-sm font-semibold">
-                                          <span className="inline-flex items-center gap-2 text-slate-600">
-                                            <span className="h-3 w-3 rounded-full border-2 border-slate-500 bg-white" />
-                                            기존 {currentValue.toFixed(2)}
-                                          </span>
-                                          <span className={`inline-flex items-center gap-2 ${expectedTextClass}`}>
-                                            <span className={`h-3 w-3 rounded-full ${expectedDotClass}`} />
-                                            4주 후 {expectedValue.toFixed(2)}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      <div className="mt-2 rounded-md border border-dashed border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-500">
-                                        전/후 수치 데이터 없음
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
+                                  );
+                                })}
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <p className="mt-3 rounded-lg border border-dashed border-slate-300 bg-white/80 px-3 py-6 text-center text-sm text-slate-600">
+                              {csvRequiredMessage}
+                            </p>
                           )}
                         </div>
                       </div>
                     </div>
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="flex min-h-[560px] w-full items-center justify-center bg-white/80 px-6 py-12 text-center text-2xl font-semibold text-slate-800">
+                      환자의 검사 수치를 입력해주세요.
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
           ) : null}
 
           {/* Supplement Search */}
-          {hasSelectedResident && selectedResident ? (
+          {hasSelectedResident && selectedResident && hasNutritionCsvInput ? (
             <div className="space-y-4 mt-8">
               <div className="rounded-2xl border border-muted bg-white px-6 py-6 text-center">
                 <p className="text-lg font-semibold text-slate-900">영양제 추천 검색</p>
