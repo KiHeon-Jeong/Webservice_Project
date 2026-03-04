@@ -31,6 +31,7 @@
 ### 2) 페이지 구성
 
 - `Dashboard`: 시설 요약 지표, 병실 단면도, 공지사항 위젯
+  <img width="1551" height="1125" alt="image" src="https://github.com/user-attachments/assets/80c12ba3-dc03-4a36-8f3b-5f0d574b52e4" />
 - `Immune`: 감염 취약성 관리, 이용자 상세/조치/CSV 연동
 - `Nutrition`: 영양소 상태, 추천 영양소/음식, 예측 엔진, 검색
 - `Template`: 템플릿 편집/토큰/채널/미리보기
