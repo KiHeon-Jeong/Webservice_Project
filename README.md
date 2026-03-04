@@ -1,6 +1,6 @@
-# Webservice Project
+# Webservice Part
 
-요양원 운영을 위한 프론트엔드(Vite + React)와 모델 추론 백엔드(FastAPI)를 함께 사용하는 프로젝트입니다.
+요양원 운영을 위한 프론트엔드(Vite + React)와 모델 추론 백엔드(FastAPI)를 함께 사용하는 사이트 예시 구현입니다.
 
 현재 구현 기준으로 로그인/권한, 대시보드, 감염 취약성 관리, 영양 관리, 템플릿 관리, 원장 관리 페이지가 포함되어 있습니다.
 
@@ -30,12 +30,18 @@
 
 ### 2) 페이지 구성
 
-- `Dashboard`: 시설 요약 지표, 병실 단면도, 공지사항 위젯
-  <img width="1551" height="1125" alt="image" src="https://github.com/user-attachments/assets/80c12ba3-dc03-4a36-8f3b-5f0d574b52e4" />
-- `Immune`: 감염 취약성 관리, 이용자 상세/조치/CSV 연동
+- `Dashboard`: 시설 요약 지표, 병실 단면도, 공지사항 위젯  
+  <img width="1550" height="1125" alt="image" src="https://github.com/user-attachments/assets/80cce6a8-89b6-45fe-9d2b-b36a31f29984" />  
+- `Immune`: 감염 취약성 관리, 이용자 상세/조치/CSV 연동  
+  <img width="1919" height="1079" alt="image" src="https://github.com/user-attachments/assets/48a83588-3003-47ec-a26c-fa1d5cdbe1cc" />  
 - `Nutrition`: 영양소 상태, 추천 영양소/음식, 예측 엔진, 검색
+  <img width="1919" height="698" alt="image" src="https://github.com/user-attachments/assets/a40d00a5-3708-4daa-a1e3-f1b5461fbf23" />
+  <img width="1000" height="563" alt="image" src="https://github.com/user-attachments/assets/cbecf4df-26d9-4aea-877a-2c7b503ce051" />
+  <img width="1000" height="366" alt="image" src="https://github.com/user-attachments/assets/21dd9362-5828-4a8d-aa48-fcdf14204e6a" />  
 - `Template`: 템플릿 편집/토큰/채널/미리보기
+  <img width="1000" height="563" alt="image" src="https://github.com/user-attachments/assets/86f827a2-f511-45c9-8ee6-ea533eea2b34" />  
 - `Management`: 요양원 원장 관리 센터
+   <img width="1000" height="941" alt="image" src="https://github.com/user-attachments/assets/9e235da7-94fc-4ec2-a29e-8652292f3f76" />
 
 ### 3) 공지사항 데이터 공통화
 
